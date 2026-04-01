@@ -1,3 +1,7 @@
+from datetime import date
+from decimal import Decimal, InvalidOperation
+
+from django.db.models import Q
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.decorators import action
@@ -72,9 +76,16 @@ class TransactionViewSet(BaseModelViewSet):
         # - ?filter_year=2026&filter_month=3
         # - ?filter[year]=2026&filter[month]=3
         # - ?year_month=2026-03  (also supported)
+        # - ?start_date=2026-03-01&end_date=2026-03-31
+        # - ?filter_start_date=...&filter_end_date=...
+        # - ?filter[start_date]=...&filter[end_date]=...
         year_raw = qp.get("year") or qp.get("filter_year") or qp.get("filter[year]")
         month_raw = qp.get("month") or qp.get("filter_month") or qp.get("filter[month]")
         year_month = qp.get("year_month")
+        start_date_raw = qp.get("start_date") or qp.get("filter_start_date") or qp.get("filter[start_date]")
+        end_date_raw = qp.get("end_date") or qp.get("filter_end_date") or qp.get("filter[end_date]")
+        amount_min_raw = qp.get("amount_min") or qp.get("filter_amount_min") or qp.get("filter[amount_min]") or qp.get("min_amount")
+        amount_max_raw = qp.get("amount_max") or qp.get("filter_amount_max") or qp.get("filter[amount_max]") or qp.get("max_amount")
         account_id = qp.get("account")
         person_id = qp.get("person")
         type_raw = qp.get("type")
@@ -87,14 +98,16 @@ class TransactionViewSet(BaseModelViewSet):
         if person_id is not None:
             qs = qs.filter(person_id=person_id)
 
-        if type_raw is not None:
-            txn_type = str(type_raw).strip().lower()
-            if txn_type in {"credit", "crdit"}:
+        if type_raw is not None and str(type_raw).strip():
+            type_value = str(type_raw).strip().lower()
+            if type_value in {"all", "both", "any"}:
+                pass
+            elif type_value in {"credit", "crdit"}:
                 qs = qs.filter(credit__gt=0)
-            elif txn_type == "debit":
+            elif type_value == "debit":
                 qs = qs.filter(debit__gt=0)
             else:
-                raise ValidationError({"type": 'Invalid type. Use "credit" or "debit".'})
+                raise ValidationError({"type": 'Invalid type. Use "credit", "debit", or "all".'})
 
         if year_month and (not year_raw or not month_raw):
             # Expect YYYY-MM
@@ -120,6 +133,44 @@ class TransactionViewSet(BaseModelViewSet):
             if month_int < 1 or month_int > 12:
                 raise ValidationError({"month": "month must be between 1 and 12."})
             qs = qs.filter(txn_date__month=month_int)
+
+        start_date_obj = None
+        if start_date_raw is not None and str(start_date_raw).strip():
+            try:
+                start_date_obj = date.fromisoformat(str(start_date_raw).strip())
+            except Exception:
+                raise ValidationError({"start_date": 'Invalid start_date. Use "YYYY-MM-DD".'})
+            qs = qs.filter(txn_date__gte=start_date_obj)
+
+        end_date_obj = None
+        if end_date_raw is not None and str(end_date_raw).strip():
+            try:
+                end_date_obj = date.fromisoformat(str(end_date_raw).strip())
+            except Exception:
+                raise ValidationError({"end_date": 'Invalid end_date. Use "YYYY-MM-DD".'})
+            qs = qs.filter(txn_date__lte=end_date_obj)
+
+        if start_date_obj and end_date_obj and start_date_obj > end_date_obj:
+            raise ValidationError({"end_date": "end_date must be >= start_date."})
+
+        amount_min = None
+        if amount_min_raw is not None and str(amount_min_raw).strip():
+            try:
+                amount_min = Decimal(str(amount_min_raw).strip())
+            except (InvalidOperation, ValueError):
+                raise ValidationError({"amount_min": "Invalid amount_min. Use a numeric value."})
+            qs = qs.filter(Q(credit__gte=amount_min) | Q(debit__gte=amount_min))
+
+        amount_max = None
+        if amount_max_raw is not None and str(amount_max_raw).strip():
+            try:
+                amount_max = Decimal(str(amount_max_raw).strip())
+            except (InvalidOperation, ValueError):
+                raise ValidationError({"amount_max": "Invalid amount_max. Use a numeric value."})
+            qs = qs.filter(Q(credit__lte=amount_max) | Q(debit__lte=amount_max))
+
+        if amount_min is not None and amount_max is not None and amount_min > amount_max:
+            raise ValidationError({"amount_max": "amount_max must be >= amount_min."})
 
         return qs.order_by("-txn_date", "-id")
 
