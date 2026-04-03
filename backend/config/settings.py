@@ -15,7 +15,12 @@ from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
-ALLOWED_HOSTS = ["*"]
+ALLOWED_HOSTS = [
+    "shreyclinic.com",
+    "www.shreyclinic.com",
+    "localhost",
+    "127.0.0.1"
+]
 CORS_ALLOW_ALL_ORIGINS = True
 
 # Quick-start development settings - unsuitable for production
@@ -26,9 +31,6 @@ SECRET_KEY = 'django-insecure-f-w@!@uvgg8a6#5m=k+-k97pdzkn-a+wet3ha_by(gd)roeln@
 
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
-
-ALLOWED_HOSTS = []
-
 
 # Application definition
 
