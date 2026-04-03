@@ -292,6 +292,11 @@ export async function deleteTransaction(id: Transaction["id"]): Promise<void> {
   await api.delete(`/transactions/${id}/`);
 }
 
+export async function getTransaction(id: Transaction["id"]): Promise<Transaction> {
+  const res = await api.get(`/transactions/${id}/`);
+  return normalizeTxn(res.data);
+}
+
 export type UploadTransactionsExcelInput = {
   account: Transaction["account"];
   file: {
@@ -382,5 +387,82 @@ export async function listTransactionYearsOptions(): Promise<string[]> {
   const unique = Array.from(new Set(years));
   unique.sort();
   return unique;
+}
+
+/** Nested txn in a self-transfer pair (API may include extra fields). */
+export type SelfTransferNestedTxn = {
+  id: number | string;
+  account?: number | string;
+  txn_date: string;
+  description: string;
+  amount: string;
+  type: "credit" | "debit";
+  txn_type?: string;
+  hidden?: boolean;
+};
+
+export type SelfTransferPair = {
+  txn_date: string;
+  amount: string;
+  from_account: number | string;
+  from_account_name: string;
+  to_account: number | string;
+  to_account_name: string;
+  debit_transaction: SelfTransferNestedTxn;
+  credit_transaction: SelfTransferNestedTxn;
+};
+
+export type PaginatedSelfTransferList = {
+  results: SelfTransferPair[];
+  count: number;
+  next: string | null;
+  previous: string | null;
+};
+
+function normalizeSelfTransferNested(raw: any): SelfTransferNestedTxn {
+  return {
+    id: raw?.id ?? "",
+    account: raw?.account,
+    txn_date: String(raw?.txn_date ?? ""),
+    description: String(raw?.description ?? ""),
+    amount: toMoneyString(raw?.amount),
+    type: raw?.type === "debit" ? "debit" : "credit",
+    txn_type: raw?.txn_type != null ? String(raw.txn_type) : undefined,
+    hidden: Boolean(raw?.hidden),
+  };
+}
+
+function normalizeSelfTransferPair(raw: any): SelfTransferPair {
+  return {
+    txn_date: String(raw?.txn_date ?? ""),
+    amount: toMoneyString(raw?.amount),
+    from_account: raw?.from_account ?? "",
+    from_account_name: String(raw?.from_account_name ?? ""),
+    to_account: raw?.to_account ?? "",
+    to_account_name: String(raw?.to_account_name ?? ""),
+    debit_transaction: normalizeSelfTransferNested(raw?.debit_transaction),
+    credit_transaction: normalizeSelfTransferNested(raw?.credit_transaction),
+  };
+}
+
+export async function listSelfTransfers(params?: {
+  page?: number;
+}): Promise<PaginatedSelfTransferList> {
+  const page = params?.page ?? 1;
+  const res = await api.get("/transactions/self-transfer/", {
+    params: { page },
+  });
+  const data = res.data;
+  const rawResults = Array.isArray(data?.results) ? data.results : [];
+  const results = rawResults.map(normalizeSelfTransferPair);
+  const count =
+    typeof data?.count === "number" && Number.isFinite(data.count)
+      ? data.count
+      : results.length;
+  const next = data?.next == null || data.next === "" ? null : String(data.next);
+  const previous =
+    data?.previous == null || data.previous === "" ? null : String(data.previous);
+
+  return { results, count, next, previous };
 }
 

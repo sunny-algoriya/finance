@@ -9,6 +9,7 @@ from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 
 from .models import Transaction, TransactionUpload, SplitGroup, SplitGroupTransaction, SplitItem
+from .query_helpers import parse_year_month_query_params
 from .serializers import (
     TransactionSerializer,
     TransactionUploadSerializer,
@@ -221,6 +222,80 @@ class TransactionViewSet(BaseModelViewSet):
                 ]
             )
         )
+
+    @action(detail=False, methods=["get"], url_path="self-transfer")
+    def self_transfer(self, request):
+        """
+        List internal transfers: pairs where one account has a debit and another has
+        a credit for the same amount on the same date (same user, different accounts).
+
+        Optional: year, month, year_month (filter txn_date), show / include_hidden.
+        Optional: strict_transfer=true — only rows with txn_type=transfer.
+        """
+        user = request.user
+        qp = request.query_params
+        qs_base = Transaction.objects.filter(user=user)
+        qs_base = _filter_by_hidden_visibility(qs_base, qp)
+
+        year_int, month_int = parse_year_month_query_params(qp)
+        if year_int is not None:
+            qs_base = qs_base.filter(txn_date__year=year_int)
+        if month_int is not None:
+            qs_base = qs_base.filter(txn_date__month=month_int)
+
+        strict = _truthy_query_param(qp, "strict_transfer")
+
+        debits = list(
+            qs_base.filter(credit=0, debit__gt=0)
+            .select_related("account")
+            .order_by("txn_date", "id")
+        )
+        credits = list(
+            qs_base.filter(debit=0, credit__gt=0)
+            .select_related("account")
+            .order_by("txn_date", "id")
+        )
+
+        used_credit_ids = set()
+        pairs = []
+        ctx = {"request": request}
+
+        for d in debits:
+            for c in credits:
+                if c.id in used_credit_ids:
+                    continue
+                if d.txn_date != c.txn_date:
+                    continue
+                if d.account_id == c.account_id:
+                    continue
+                da = d.debit.quantize(Decimal("0.01"))
+                ca = c.credit.quantize(Decimal("0.01"))
+                if da != ca:
+                    continue
+                if strict:
+                    tt = Transaction.TransactionType.TRANSFER
+                    if d.txn_type != tt or c.txn_type != tt:
+                        continue
+
+                used_credit_ids.add(c.id)
+                pairs.append(
+                    {
+                        "txn_date": d.txn_date,
+                        "amount": format(da, "f"),
+                        "from_account": d.account_id,
+                        "from_account_name": d.account.name,
+                        "to_account": c.account_id,
+                        "to_account_name": c.account.name,
+                        "debit_transaction": TransactionSerializer(d, context=ctx).data,
+                        "credit_transaction": TransactionSerializer(c, context=ctx).data,
+                    }
+                )
+                break
+
+        # Newest pairs first (by date then by debit id)
+        pairs.sort(key=lambda p: (p["txn_date"], p["debit_transaction"]["id"]), reverse=True)
+
+        return Response({"count": len(pairs), "results": pairs})
 
     @action(detail=False, methods=["get"], url_path="year-month")
     def year_month(self, request):

@@ -26,6 +26,7 @@ import PersonLedgerScreen from "../screens/PersonLedgerScreen";
 import CategoriesScreen from "../screens/CategoriesScreen";
 import TransactionsScreen from "../screens/TransactionsScreen";
 import SplitGroupsScreen from "../screens/SplitGroupsScreen";
+import SelfTransferScreen from "../screens/SelfTransferScreen";
 import { getToken } from "../services/auth";
 import { logout as logoutService } from "../services/auth";
 
@@ -40,8 +41,9 @@ export type AppTabParamList = {
   Peoples: undefined;
   PersonLedger: { personId: number | string; personName?: string };
   Categories: undefined;
-  Transactions: undefined;
+  Transactions: { openEditTransactionId?: string | number };
   SplitGroups: undefined;
+  SelfTransfers: undefined;
   Activity: undefined;
   Profile: undefined;
 };
@@ -108,6 +110,7 @@ function AppShell({ navigation }: NativeStackScreenProps<RootStackParamList, "Ap
     { key: "Peoples", label: "People", icon: "users" },
     { key: "Categories", label: "Categories", icon: "grid" },
     { key: "SplitGroups", label: "Split groups", icon: "layers" },
+    { key: "SelfTransfers", label: "Self transfers", icon: "shuffle" },
   ];
 
   async function onLogout() {
@@ -118,7 +121,11 @@ function AppShell({ navigation }: NativeStackScreenProps<RootStackParamList, "Ap
 
   function goTo(key: AppMenuTabKey) {
     setIsMenuOpen(false);
-    navigation.navigate("App", { screen: key });
+    if (key === "Transactions") {
+      navigation.navigate("App", { screen: "Transactions", params: {} });
+    } else {
+      navigation.navigate("App", { screen: key });
+    }
   }
 
   return (
@@ -134,6 +141,7 @@ function AppShell({ navigation }: NativeStackScreenProps<RootStackParamList, "Ap
         <AppStack.Screen name="PersonLedger" component={PersonLedgerScreen} />
         <AppStack.Screen name="Categories" component={CategoriesScreen} />
         <AppStack.Screen name="SplitGroups" component={SplitGroupsScreen} />
+        <AppStack.Screen name="SelfTransfers" component={SelfTransferScreen} />
         <AppStack.Screen
           name="Activity"
           children={() => <DummyScreen title="Activity" />}

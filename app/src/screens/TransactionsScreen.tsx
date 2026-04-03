@@ -16,6 +16,13 @@ import {
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
 import * as DocumentPicker from "expo-document-picker";
+import {
+  useFocusEffect,
+  useNavigation,
+  useRoute,
+  type RouteProp,
+} from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 
 import { listAccounts, type Account } from "../services/accounts";
 import {
@@ -30,9 +37,11 @@ import {
 } from "../utils/date";
 import { formatMoney2 } from "../utils/money";
 import AppTabScreen from "../components/AppTabScreen";
+import type { AppTabParamList } from "../navigation/AppNavigator";
 import {
   createTransaction,
   deleteTransaction,
+  getTransaction,
   listTransactionsByYearMonth,
   TRANSACTION_TXN_TYPES,
   listTransactionUploads,
@@ -135,6 +144,9 @@ export default function TransactionsScreen() {
   const currentYear = String(now.getFullYear());
   const currentMonth = String(now.getMonth() + 1).padStart(2, "0");
   const currentYearMonth = `${currentYear}-${currentMonth}`;
+
+  const route = useRoute<RouteProp<AppTabParamList, "Transactions">>();
+  const navigation = useNavigation<NativeStackNavigationProp<AppTabParamList>>();
 
   const [txns, setTxns] = React.useState<Transaction[]>([]);
   const [accounts, setAccounts] = React.useState<Account[]>([]);
@@ -724,6 +736,44 @@ export default function TransactionsScreen() {
     setTxnKind(txn.txn_type ?? "expense");
     setIsModalOpen(true);
   }
+
+  const openEditRef = React.useRef(openEdit);
+  openEditRef.current = openEdit;
+
+  const openEditTxIdParam = route.params?.openEditTransactionId;
+
+  useFocusEffect(
+    React.useCallback(() => {
+      if (
+        openEditTxIdParam === undefined ||
+        openEditTxIdParam === null ||
+        String(openEditTxIdParam).trim() === ""
+      ) {
+        return;
+      }
+      const id = openEditTxIdParam;
+      let cancelled = false;
+      void (async () => {
+        try {
+          const txn = await getTransaction(id);
+          if (cancelled) return;
+          openEditRef.current(txn);
+          navigation.setParams({ openEditTransactionId: undefined });
+        } catch (err: any) {
+          const message =
+            err?.response?.data?.detail ??
+            err?.response?.data?.message ??
+            err?.message ??
+            "Failed to load transaction.";
+          Alert.alert("Error", String(message));
+          navigation.setParams({ openEditTransactionId: undefined });
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, [openEditTxIdParam, navigation]),
+  );
 
   async function onToggleTransactionHidden(txn: Transaction) {
     const key = String(txn.id);
