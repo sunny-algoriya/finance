@@ -2,6 +2,7 @@ import React from "react";
 import {
   ActivityIndicator,
   Alert,
+  Keyboard,
   KeyboardAvoidingView,
   Linking,
   Modal,
@@ -45,6 +46,9 @@ import {
 
 /** RN may define `window` without `location`; only use URL APIs on web. */
 const IS_WEB = Platform.OS === "web";
+
+/** Must match backend `DefaultPagination.page_size`. */
+const TXN_PAGE_SIZE = 50;
 
 type EditState = { mode: "create" } | { mode: "edit"; txn: Transaction };
 
@@ -200,6 +204,7 @@ export default function TransactionsScreen() {
   const [txnTotalCount, setTxnTotalCount] = React.useState(0);
   const [txnHasNext, setTxnHasNext] = React.useState(false);
   const [txnHasPrev, setTxnHasPrev] = React.useState(false);
+  const [totalsAccordionOpen, setTotalsAccordionOpen] = React.useState(true);
   const [isYearPickerOpen, setIsYearPickerOpen] = React.useState(false);
   const [isMonthPickerOpen, setIsMonthPickerOpen] = React.useState(false);
   const [isCustomDateModalOpen, setIsCustomDateModalOpen] =
@@ -701,6 +706,12 @@ export default function TransactionsScreen() {
     setIsModalOpen(true);
   }
 
+  function closeTxnModal() {
+    if (isSaving) return;
+    Keyboard.dismiss();
+    setIsModalOpen(false);
+  }
+
   function openEdit(txn: Transaction) {
     setEditState({ mode: "edit", txn });
     setAccountId(txn.account);
@@ -714,14 +725,21 @@ export default function TransactionsScreen() {
     setIsModalOpen(true);
   }
 
-  async function onHideTransaction(txn: Transaction) {
-    if (txn.hidden) return;
+  async function onToggleTransactionHidden(txn: Transaction) {
     const key = String(txn.id);
     if (hidingTxnId) return;
     setHidingTxnId(key);
     try {
-      const updated = await patchTransaction(txn.id, { hidden: true });
-      setTxns((prev) => prev.map((t) => (String(t.id) === key ? updated : t)));
+      const updated = await patchTransaction(txn.id, { hidden: !txn.hidden });
+      setTxns((prev) => {
+        if (filterVisibility === "hidden" && !updated.hidden) {
+          return prev.filter((t) => String(t.id) !== key);
+        }
+        if (filterVisibility === "visible" && updated.hidden) {
+          return prev.filter((t) => String(t.id) !== key);
+        }
+        return prev.map((t) => (String(t.id) === key ? updated : t));
+      });
       setEditState((s) =>
         s.mode === "edit" && String(s.txn.id) === key
           ? { mode: "edit", txn: updated }
@@ -732,7 +750,7 @@ export default function TransactionsScreen() {
         err?.response?.data?.detail ??
         err?.response?.data?.message ??
         err?.message ??
-        "Failed to hide transaction.";
+        "Failed to update visibility.";
       Alert.alert("Error", String(message));
     } finally {
       setHidingTxnId(null);
@@ -809,6 +827,7 @@ export default function TransactionsScreen() {
         });
         setTxns((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
       }
+      Keyboard.dismiss();
       setIsModalOpen(false);
     } catch (err: any) {
       const message =
@@ -920,6 +939,21 @@ export default function TransactionsScreen() {
     customStartDate,
     customEndDate,
   ]);
+
+  const txnListMetaLine = React.useMemo(() => {
+    if (txnTotalCount <= 0) {
+      return txnTotalCount === 0 ? "0 transactions" : "";
+    }
+    const totalPages = Math.max(1, Math.ceil(txnTotalCount / TXN_PAGE_SIZE));
+    const hasPagination =
+      txnHasNext || txnHasPrev || txnTotalCount > txns.length;
+    if (hasPagination) {
+      return `${txnTotalCount} total · ${txns.length} listed · page ${txnPage} of ${totalPages}`;
+    }
+    return txnTotalCount === 1
+      ? "1 transaction"
+      : `${txnTotalCount} transactions`;
+  }, [txnTotalCount, txnHasNext, txnHasPrev, txns.length, txnPage]);
 
   return (
     <AppTabScreen>
@@ -1115,21 +1149,48 @@ export default function TransactionsScreen() {
       </View>
 
       <View style={styles.periodTotalsSection}>
-        <Text style={styles.periodTotalsRangeHint}>{filterTotalsHint}</Text>
-        <View style={styles.periodTotalsRow}>
-          <View style={[styles.periodTotalBox, styles.periodTotalBoxCredit]}>
-            <Text style={styles.periodTotalLabel}>Credit</Text>
-            <Text style={[styles.periodTotalAmount, styles.creditText]}>
-              {formatMoney2(filterTotals?.total_credit ?? "0")}
-            </Text>
+        <Pressable
+          onPress={() => setTotalsAccordionOpen((o) => !o)}
+          style={({ pressed }) => [
+            styles.periodTotalsAccordionHeader,
+            pressed && styles.periodTotalsAccordionHeaderPressed,
+          ]}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: totalsAccordionOpen }}
+          accessibilityLabel={
+            totalsAccordionOpen
+              ? "Collapse credit and debit totals"
+              : "Expand credit and debit totals"
+          }
+        >
+          <Text
+            style={styles.periodTotalsRangeHint}
+            numberOfLines={2}
+          >
+            {filterTotalsHint}
+          </Text>
+          <Feather
+            name={totalsAccordionOpen ? "chevron-up" : "chevron-down"}
+            size={18}
+            color="#6B6B6B"
+          />
+        </Pressable>
+        {totalsAccordionOpen ? (
+          <View style={styles.periodTotalsRow}>
+            <View style={[styles.periodTotalBox, styles.periodTotalBoxCredit]}>
+              <Text style={styles.periodTotalLabel}>Credit</Text>
+              <Text style={[styles.periodTotalAmount, styles.creditText]}>
+                {formatMoney2(filterTotals?.total_credit ?? "0")}
+              </Text>
+            </View>
+            <View style={[styles.periodTotalBox, styles.periodTotalBoxDebit]}>
+              <Text style={styles.periodTotalLabel}>Debit</Text>
+              <Text style={[styles.periodTotalAmount, styles.debitText]}>
+                {formatMoney2(filterTotals?.total_debit ?? "0")}
+              </Text>
+            </View>
           </View>
-          <View style={[styles.periodTotalBox, styles.periodTotalBoxDebit]}>
-            <Text style={styles.periodTotalLabel}>Debit</Text>
-            <Text style={[styles.periodTotalAmount, styles.debitText]}>
-              {formatMoney2(filterTotals?.total_debit ?? "0")}
-            </Text>
-          </View>
-        </View>
+        ) : null}
       </View>
 
       <Modal
@@ -1276,7 +1337,9 @@ export default function TransactionsScreen() {
               </Pressable>
             </View>
             <View style={styles.customDateModalField}>
-              <Text style={styles.customDateModalLabel}>Start (YYYY-MM-DD)</Text>
+              <Text style={styles.customDateModalLabel}>
+                Start (YYYY-MM-DD)
+              </Text>
               <TextInput
                 value={customStartDateInput}
                 onChangeText={setCustomStartDateInput}
@@ -1853,10 +1916,8 @@ export default function TransactionsScreen() {
 
       {!isLoading && (
         <View style={styles.txnMetaStrip}>
-          <Text style={styles.txnMetaCountText} numberOfLines={1}>
-            {txnTotalCount === 1
-              ? "1 transaction"
-              : `${txnTotalCount} transactions`}
+          <Text style={styles.txnMetaCountText} numberOfLines={2}>
+            {txnListMetaLine}
           </Text>
           {txnTotalCount > 0 && (txnHasNext || txnHasPrev) ? (
             <View style={styles.txnPagerInline}>
@@ -1934,7 +1995,8 @@ export default function TransactionsScreen() {
               {txns.map((t) => {
                 const accName =
                   accountById.get(String(t.account))?.name ?? "Account";
-                const personName = t.person
+                const hasPerson = t.person != null && t.person !== "";
+                const personName = hasPerson
                   ? (peopleById.get(String(t.person))?.name ?? "Person")
                   : undefined;
 
@@ -1967,19 +2029,17 @@ export default function TransactionsScreen() {
                         </Text>
                         <View style={styles.txnDateActions}>
                           <Pressable
-                            onPress={() => void onHideTransaction(t)}
-                            disabled={t.hidden || hidingTxnId === String(t.id)}
+                            onPress={() => void onToggleTransactionHidden(t)}
+                            disabled={hidingTxnId === String(t.id)}
                             style={({ pressed }) => [
                               styles.txnHideUnderDate,
                               pressed && styles.txnHideUnderDatePressed,
-                              (t.hidden || hidingTxnId === String(t.id)) && {
-                                opacity: 0.45,
-                              },
+                              hidingTxnId === String(t.id) && { opacity: 0.45 },
                             ]}
                             accessibilityRole="button"
                             accessibilityLabel={
                               t.hidden
-                                ? "Transaction hidden"
+                                ? "Unhide transaction"
                                 : "Hide transaction"
                             }
                           >
@@ -2008,16 +2068,33 @@ export default function TransactionsScreen() {
                         onPress={() => openEdit(t)}
                         style={({ pressed }) => [
                           styles.cellDescWrap,
-                          pressed && styles.cellDescPressablePressed,
+                          hasPerson && styles.cellDescWrapWithPerson,
+                          pressed &&
+                            (hasPerson
+                              ? styles.cellDescPressablePressedPerson
+                              : styles.cellDescPressablePressed),
                         ]}
                         accessibilityRole="button"
                         accessibilityLabel="Edit transaction"
                       >
-                        <Text style={styles.cellDesc}>
+                        <Text
+                          style={[
+                            styles.cellDesc,
+                            hasPerson && styles.cellDescWithPerson,
+                          ]}
+                        >
                           {t.description || "—"}
                         </Text>
-                        <Text style={styles.cellMeta} numberOfLines={1}>
-                          {accName}
+                        <Text
+                          style={[
+                            styles.cellMeta,
+                            hasPerson && styles.cellMetaWithPerson,
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {hasPerson && personName
+                            ? `${personName} · ${accName}`
+                            : accName}
                           {t.category
                             ? ` · ${categoryById.get(String(t.category))?.name ?? "Category"}`
                             : ""}
@@ -2086,17 +2163,27 @@ export default function TransactionsScreen() {
         visible={isModalOpen}
         animationType="slide"
         transparent
-        onRequestClose={() => (isSaving ? null : setIsModalOpen(false))}
+        onRequestClose={() => {
+          if (isSaving) return;
+          closeTxnModal();
+        }}
       >
         <KeyboardAvoidingView
           style={styles.txnModalKeyboardRoot}
-          behavior={Platform.OS === "ios" ? "padding" : "height"}
+          behavior={Platform.OS === "ios" ? "padding" : undefined}
+          enabled={Platform.OS === "ios"}
           keyboardVerticalOffset={Platform.OS === "ios" ? 8 : 0}
         >
           <View style={styles.txnModalKeyboardInner}>
             <Pressable
-              style={[StyleSheet.absoluteFillObject, styles.txnModalBackdropDim]}
-              onPress={() => (isSaving ? null : setIsModalOpen(false))}
+              style={[
+                StyleSheet.absoluteFillObject,
+                styles.txnModalBackdropDim,
+              ]}
+              onPress={() => {
+                if (isSaving) return;
+                closeTxnModal();
+              }}
             />
             <View style={styles.sheet}>
               <View style={styles.sheetHeader}>
@@ -2106,7 +2193,7 @@ export default function TransactionsScreen() {
                     : "Edit transaction"}
                 </Text>
                 <Pressable
-                  onPress={() => setIsModalOpen(false)}
+                  onPress={closeTxnModal}
                   disabled={isSaving}
                   style={({ pressed }) => [
                     styles.closeBtn,
@@ -2120,201 +2207,209 @@ export default function TransactionsScreen() {
 
               <ScrollView
                 keyboardShouldPersistTaps="handled"
-                keyboardDismissMode="on-drag"
+                keyboardDismissMode={
+                  Platform.OS === "ios" ? "interactive" : "on-drag"
+                }
                 showsVerticalScrollIndicator
+                automaticallyAdjustKeyboardInsets={Platform.OS === "ios"}
                 contentContainerStyle={styles.txnModalScrollContent}
               >
-            <View style={{ gap: 6 }}>
-              <Text style={styles.label}>Account</Text>
-              <Pressable
-                onPress={() => setIsAccountPickerOpen(true)}
-                style={({ pressed }) => [
-                  styles.pickerBtn,
-                  pressed && styles.pickerBtnPressed,
-                ]}
-              >
-                <Text style={styles.pickerBtnText}>
-                  {accountLabel ?? "Select account"}
-                </Text>
-              </Pressable>
-            </View>
-
-            <View style={{ gap: 6 }}>
-              <Text style={styles.label}>Person (optional)</Text>
-              <Pressable
-                onPress={() => setIsPersonPickerOpen(true)}
-                style={({ pressed }) => [
-                  styles.pickerBtn,
-                  pressed && styles.pickerBtnPressed,
-                ]}
-              >
-                <Text style={styles.pickerBtnText}>
-                  {personLabel ?? "None"}
-                </Text>
-              </Pressable>
-            </View>
-
-            <View style={{ gap: 6 }}>
-              <Text style={styles.label}>Category (optional)</Text>
-              <Pressable
-                onPress={() => setIsCategoryPickerOpen(true)}
-                style={({ pressed }) => [
-                  styles.pickerBtn,
-                  pressed && styles.pickerBtnPressed,
-                ]}
-              >
-                <Text style={styles.pickerBtnText}>
-                  {categoryLabel ?? "None"}
-                </Text>
-              </Pressable>
-            </View>
-
-            <View style={{ gap: 6 }}>
-              <Text style={styles.label}>Date</Text>
-              <TextInput
-                style={styles.input}
-                value={txnDate}
-                onChangeText={setTxnDate}
-                placeholder="YYYY-MM-DD"
-                placeholderTextColor="#6B6B6B"
-                editable={!isSaving}
-                autoCapitalize="none"
-                autoCorrect={false}
-              />
-            </View>
-
-            <View style={{ gap: 6 }}>
-              <Text style={styles.label}>Description</Text>
-              <TextInput
-                style={[styles.input, styles.inputMultiline]}
-                value={description}
-                onChangeText={setDescription}
-                placeholder="e.g. Lunch split"
-                placeholderTextColor="#6B6B6B"
-                editable={!isSaving}
-                multiline
-                textAlignVertical="top"
-                scrollEnabled={false}
-              />
-            </View>
-
-            <View style={styles.moneyRow}>
-              <View style={{ flex: 1, gap: 6 }}>
-                <Text style={styles.label}>Amount</Text>
-                <TextInput
-                  style={styles.input}
-                  value={amount}
-                  onChangeText={(t) => setAmount(formatMoneyInput(t))}
-                  placeholder="0.00"
-                  placeholderTextColor="#6B6B6B"
-                  keyboardType="numeric"
-                  editable={!isSaving}
-                />
-              </View>
-              <View style={{ flex: 1, gap: 6 }}>
-                <Text style={styles.label}>Type</Text>
-                <View style={{ flexDirection: "row", gap: 8 }}>
+                <View style={{ gap: 6 }}>
+                  <Text style={styles.label}>Account</Text>
                   <Pressable
-                    onPress={() => setTxnType("credit")}
-                    disabled={isSaving}
+                    onPress={() => setIsAccountPickerOpen(true)}
                     style={({ pressed }) => [
-                      styles.typePill,
-                      txnType === "credit" && styles.typePillCreditActive,
-                      pressed && txnType !== "credit" && styles.typePillPressed,
+                      styles.pickerBtn,
+                      pressed && styles.pickerBtnPressed,
                     ]}
                   >
-                    <Text
-                      style={[
-                        styles.typePillText,
-                        txnType === "credit" && styles.typePillTextActive,
-                      ]}
-                    >
-                      Credit
-                    </Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={() => setTxnType("debit")}
-                    disabled={isSaving}
-                    style={({ pressed }) => [
-                      styles.typePill,
-                      txnType === "debit" && styles.typePillDebitActive,
-                      pressed && txnType !== "debit" && styles.typePillPressed,
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.typePillText,
-                        txnType === "debit" && styles.typePillTextActive,
-                      ]}
-                    >
-                      Debit
+                    <Text style={styles.pickerBtnText}>
+                      {accountLabel ?? "Select account"}
                     </Text>
                   </Pressable>
                 </View>
-              </View>
-            </View>
 
-            <View style={{ gap: 6 }}>
-              <Text style={styles.label}>Transaction type</Text>
-              <View style={styles.sidebarTxnTypeWrap}>
-                {TRANSACTION_TXN_TYPES.map((opt) => (
+                <View style={{ gap: 6 }}>
+                  <Text style={styles.label}>Person (optional)</Text>
                   <Pressable
-                    key={opt}
-                    onPress={() => setTxnKind(opt)}
-                    disabled={isSaving}
+                    onPress={() => setIsPersonPickerOpen(true)}
                     style={({ pressed }) => [
-                      styles.sidebarTxnTypePill,
-                      txnKind === opt && styles.sidebarTypePillActiveNeutral,
-                      pressed && txnKind !== opt && styles.typePillPressed,
+                      styles.pickerBtn,
+                      pressed && styles.pickerBtnPressed,
                     ]}
                   >
-                    <Text
-                      style={[
-                        styles.sidebarTxnTypePillText,
-                        txnKind === opt && styles.typePillTextActive,
-                      ]}
-                    >
-                      {txnTypeLabel(opt)}
+                    <Text style={styles.pickerBtnText}>
+                      {personLabel ?? "None"}
                     </Text>
                   </Pressable>
-                ))}
-              </View>
-            </View>
-
-            <Pressable
-              onPress={onSave}
-              disabled={isSaving}
-              style={({ pressed }) => [
-                styles.saveBtn,
-                (pressed || isSaving) && styles.saveBtnPressed,
-              ]}
-            >
-              <Text style={styles.saveBtnText}>
-                {isSaving ? "Saving…" : "Save"}
-              </Text>
-            </Pressable>
-
-            {editState.mode === "edit" ? (
-              <Pressable
-                onPress={() =>
-                  onDelete(editState.txn, {
-                    confirm: true,
-                    afterDelete: () => setIsModalOpen(false),
-                  })
-                }
-                disabled={isSaving}
-                style={({ pressed }) => [
-                  styles.deleteBtn,
-                  pressed && styles.deleteBtnPressed,
-                  isSaving && { opacity: 0.65 },
-                ]}
-              >
-                <View style={styles.deleteBtnRow}>
-                  <Feather name="trash-2" size={16} color="#FFFFFF" />
-                  <Text style={styles.deleteBtnText}>Delete</Text>
                 </View>
-              </Pressable>
-            ) : null}
+
+                <View style={{ gap: 6 }}>
+                  <Text style={styles.label}>Category (optional)</Text>
+                  <Pressable
+                    onPress={() => setIsCategoryPickerOpen(true)}
+                    style={({ pressed }) => [
+                      styles.pickerBtn,
+                      pressed && styles.pickerBtnPressed,
+                    ]}
+                  >
+                    <Text style={styles.pickerBtnText}>
+                      {categoryLabel ?? "None"}
+                    </Text>
+                  </Pressable>
+                </View>
+
+                <View style={{ gap: 6 }}>
+                  <Text style={styles.label}>Date</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={txnDate}
+                    onChangeText={setTxnDate}
+                    placeholder="YYYY-MM-DD"
+                    placeholderTextColor="#6B6B6B"
+                    editable={!isSaving}
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                  />
+                </View>
+
+                <View style={{ gap: 6 }}>
+                  <Text style={styles.label}>Description</Text>
+                  <TextInput
+                    style={[styles.input, styles.inputMultiline]}
+                    value={description}
+                    onChangeText={setDescription}
+                    placeholder="e.g. Lunch split"
+                    placeholderTextColor="#6B6B6B"
+                    editable={!isSaving}
+                    multiline
+                    textAlignVertical="top"
+                    scrollEnabled={false}
+                  />
+                </View>
+
+                <View style={styles.moneyRow}>
+                  <View style={{ flex: 1, gap: 6 }}>
+                    <Text style={styles.label}>Amount</Text>
+                    <TextInput
+                      style={styles.input}
+                      value={amount}
+                      onChangeText={(t) => setAmount(formatMoneyInput(t))}
+                      placeholder="0.00"
+                      placeholderTextColor="#6B6B6B"
+                      keyboardType="numeric"
+                      editable={!isSaving}
+                    />
+                  </View>
+                  <View style={{ flex: 1, gap: 6 }}>
+                    <Text style={styles.label}>Type</Text>
+                    <View style={{ flexDirection: "row", gap: 8 }}>
+                      <Pressable
+                        onPress={() => setTxnType("credit")}
+                        disabled={isSaving}
+                        style={({ pressed }) => [
+                          styles.typePill,
+                          txnType === "credit" && styles.typePillCreditActive,
+                          pressed &&
+                            txnType !== "credit" &&
+                            styles.typePillPressed,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.typePillText,
+                            txnType === "credit" && styles.typePillTextActive,
+                          ]}
+                        >
+                          Credit
+                        </Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={() => setTxnType("debit")}
+                        disabled={isSaving}
+                        style={({ pressed }) => [
+                          styles.typePill,
+                          txnType === "debit" && styles.typePillDebitActive,
+                          pressed &&
+                            txnType !== "debit" &&
+                            styles.typePillPressed,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.typePillText,
+                            txnType === "debit" && styles.typePillTextActive,
+                          ]}
+                        >
+                          Debit
+                        </Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                </View>
+
+                <View style={{ gap: 6 }}>
+                  <Text style={styles.label}>Transaction type</Text>
+                  <View style={styles.sidebarTxnTypeWrap}>
+                    {TRANSACTION_TXN_TYPES.map((opt) => (
+                      <Pressable
+                        key={opt}
+                        onPress={() => setTxnKind(opt)}
+                        disabled={isSaving}
+                        style={({ pressed }) => [
+                          styles.sidebarTxnTypePill,
+                          txnKind === opt &&
+                            styles.sidebarTypePillActiveNeutral,
+                          pressed && txnKind !== opt && styles.typePillPressed,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.sidebarTxnTypePillText,
+                            txnKind === opt && styles.typePillTextActive,
+                          ]}
+                        >
+                          {txnTypeLabel(opt)}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                </View>
+
+                <Pressable
+                  onPress={onSave}
+                  disabled={isSaving}
+                  style={({ pressed }) => [
+                    styles.saveBtn,
+                    (pressed || isSaving) && styles.saveBtnPressed,
+                  ]}
+                >
+                  <Text style={styles.saveBtnText}>
+                    {isSaving ? "Saving…" : "Save"}
+                  </Text>
+                </Pressable>
+
+                {editState.mode === "edit" ? (
+                  <Pressable
+                    onPress={() =>
+                      onDelete(editState.txn, {
+                        confirm: true,
+                        afterDelete: () => closeTxnModal(),
+                      })
+                    }
+                    disabled={isSaving}
+                    style={({ pressed }) => [
+                      styles.deleteBtn,
+                      pressed && styles.deleteBtnPressed,
+                      isSaving && { opacity: 0.65 },
+                    ]}
+                  >
+                    <View style={styles.deleteBtnRow}>
+                      <Feather name="trash-2" size={16} color="#FFFFFF" />
+                      <Text style={styles.deleteBtnText}>Delete</Text>
+                    </View>
+                  </Pressable>
+                ) : null}
               </ScrollView>
             </View>
           </View>
@@ -2850,11 +2945,26 @@ const styles = StyleSheet.create({
     marginBottom: 11,
     gap: 8,
   },
+  periodTotalsAccordionHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: "#E7E7E7",
+    backgroundColor: "#FAFAFA",
+  },
+  periodTotalsAccordionHeaderPressed: {
+    backgroundColor: "#F0F0F0",
+  },
   periodTotalsRangeHint: {
+    flex: 1,
     fontSize: 12,
     fontFamily: "Poppins_600SemiBold",
     color: "#6B6B6B",
-    paddingHorizontal: 2,
   },
   periodTotalsRow: {
     flexDirection: "row",
@@ -3252,16 +3362,31 @@ const styles = StyleSheet.create({
     gap: 4,
     alignSelf: "stretch",
   },
+  cellDescWrapWithPerson: {
+    backgroundColor: "#0B0B0B",
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+  },
   cellDescPressablePressed: { opacity: 0.85 },
+  cellDescPressablePressedPerson: { opacity: 0.88 },
   cellDesc: {
     color: "#0B0B0B",
-    fontFamily: "Poppins_400Regular",
+    fontFamily: "Poppins_600SemiBold",
     fontSize: 12,
+  },
+  cellDescWithPerson: {
+    color: "#FFFFFF",
+    fontFamily: "Poppins_600SemiBold",
   },
   cellMeta: {
     color: "#6B6B6B",
     fontFamily: "Poppins_400Regular",
     fontSize: 11,
+  },
+  cellMetaWithPerson: {
+    color: "rgba(255,255,255,0.78)",
+    fontFamily: "Poppins_500Medium",
   },
   cellMoney: {
     width: 62,
