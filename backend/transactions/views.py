@@ -1,7 +1,8 @@
+from collections import OrderedDict
 from datetime import date
 from decimal import Decimal, InvalidOperation
 
-from django.db.models import Q
+from django.db.models import Q, Sum
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.decorators import action
@@ -173,6 +174,53 @@ class TransactionViewSet(BaseModelViewSet):
             raise ValidationError({"amount_max": "amount_max must be >= amount_min."})
 
         return qs.order_by("-txn_date", "-id")
+
+    def _aggregate_totals_money_strings(self, queryset):
+        agg = queryset.aggregate(
+            total_credit=Sum("credit"),
+            total_debit=Sum("debit"),
+        )
+        tc = agg["total_credit"] or Decimal("0")
+        td = agg["total_debit"] or Decimal("0")
+
+        def _money_str(d: Decimal) -> str:
+            q = d.quantize(Decimal("0.01"))
+            return format(q, "f")
+
+        return _money_str(tc), _money_str(td)
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+        total_credit, total_debit = self._aggregate_totals_money_strings(queryset)
+
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            paginated = self.get_paginated_response(serializer.data)
+            d = paginated.data
+            return Response(
+                OrderedDict(
+                    [
+                        ("count", d["count"]),
+                        ("next", d["next"]),
+                        ("previous", d["previous"]),
+                        ("total_credit", total_credit),
+                        ("total_debit", total_debit),
+                        ("results", d["results"]),
+                    ]
+                )
+            )
+
+        serializer = self.get_serializer(queryset, many=True)
+        return Response(
+            OrderedDict(
+                [
+                    ("total_credit", total_credit),
+                    ("total_debit", total_debit),
+                    ("results", serializer.data),
+                ]
+            )
+        )
 
     @action(detail=False, methods=["get"], url_path="year-month")
     def year_month(self, request):
