@@ -9,11 +9,11 @@ import {
   View,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
-import { useNavigation } from "@react-navigation/native";
-import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 
 import AppTabScreen from "../components/AppTabScreen";
-import type { AppTabParamList } from "../navigation/AppNavigator";
+import TransactionEditModal from "../components/TransactionEditModal";
+import { listCategories } from "../services/categories";
+import { listPeoples } from "../services/peoples";
 import {
   deleteTransaction,
   listSelfTransfers,
@@ -29,9 +29,6 @@ function pairKey(row: SelfTransferPair, index: number): string {
 }
 
 export default function SelfTransferScreen() {
-  const navigation =
-    useNavigation<NativeStackNavigationProp<AppTabParamList>>();
-
   const [rows, setRows] = React.useState<SelfTransferPair[]>([]);
   const [totalCount, setTotalCount] = React.useState(0);
   const [page, setPage] = React.useState(1);
@@ -41,6 +38,32 @@ export default function SelfTransferScreen() {
   const [isRefreshing, setIsRefreshing] = React.useState(false);
   /** Prevents double submits; value is `${pairKey}:debit|:credit|:both`. */
   const [deletingRef, setDeletingRef] = React.useState<string | null>(null);
+  const [editTransactionId, setEditTransactionId] = React.useState<
+    string | number | null
+  >(null);
+  const [peopleNameById, setPeopleNameById] = React.useState<
+    Map<string, string>
+  >(() => new Map());
+  const [categoryNameById, setCategoryNameById] = React.useState<
+    Map<string, string>
+  >(() => new Map());
+
+  React.useEffect(() => {
+    let mounted = true;
+    void (async () => {
+      try {
+        const [ppl, cats] = await Promise.all([listPeoples(), listCategories()]);
+        if (!mounted) return;
+        setPeopleNameById(new Map(ppl.map((p) => [String(p.id), p.name])));
+        setCategoryNameById(new Map(cats.map((c) => [String(c.id), c.name])));
+      } catch {
+        /* labels optional */
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const load = React.useCallback(async (pageNum: number, showLoading: boolean) => {
     if (showLoading) setIsLoading(true);
@@ -79,7 +102,7 @@ export default function SelfTransferScreen() {
 
   function goEditTransaction(id: string | number) {
     if (id === "" || id === null) return;
-    navigation.navigate("Transactions", { openEditTransactionId: id });
+    setEditTransactionId(id);
   }
 
   async function runDelete(
@@ -200,6 +223,25 @@ export default function SelfTransferScreen() {
               const busyBoth = deletingRef === `${pk}:both`;
               const busy = busyDebit || busyCredit || busyBoth;
 
+              const d = row.debit_transaction;
+              const c = row.credit_transaction;
+              const debitPersonName =
+                d.person != null && d.person !== ""
+                  ? peopleNameById.get(String(d.person))
+                  : undefined;
+              const debitCategoryName =
+                d.category != null && d.category !== ""
+                  ? categoryNameById.get(String(d.category))
+                  : undefined;
+              const creditPersonName =
+                c.person != null && c.person !== ""
+                  ? peopleNameById.get(String(c.person))
+                  : undefined;
+              const creditCategoryName =
+                c.category != null && c.category !== ""
+                  ? categoryNameById.get(String(c.category))
+                  : undefined;
+
               return (
                 <View key={pk} style={styles.card}>
                   <View style={styles.cardTop}>
@@ -289,6 +331,16 @@ export default function SelfTransferScreen() {
                     <Text style={styles.detailDesc} numberOfLines={3}>
                       {row.debit_transaction.description || "—"}
                     </Text>
+                    {debitPersonName || debitCategoryName ? (
+                      <View style={styles.metaChipsRow}>
+                        {debitPersonName ? (
+                          <Text style={styles.metaChip}>{debitPersonName}</Text>
+                        ) : null}
+                        {debitCategoryName ? (
+                          <Text style={styles.metaChip}>{debitCategoryName}</Text>
+                        ) : null}
+                      </View>
+                    ) : null}
                   </View>
                   <View style={styles.detailBlock}>
                     <View style={styles.detailLabelRow}>
@@ -351,6 +403,16 @@ export default function SelfTransferScreen() {
                     <Text style={styles.detailDesc} numberOfLines={3}>
                       {row.credit_transaction.description || "—"}
                     </Text>
+                    {creditPersonName || creditCategoryName ? (
+                      <View style={styles.metaChipsRow}>
+                        {creditPersonName ? (
+                          <Text style={styles.metaChip}>{creditPersonName}</Text>
+                        ) : null}
+                        {creditCategoryName ? (
+                          <Text style={styles.metaChip}>{creditCategoryName}</Text>
+                        ) : null}
+                      </View>
+                    ) : null}
                   </View>
                   <View style={styles.cardActions}>
                     <Pressable
@@ -396,6 +458,28 @@ export default function SelfTransferScreen() {
           )}
         </ScrollView>
       )}
+      <TransactionEditModal
+        visible={editTransactionId !== null}
+        transactionId={editTransactionId}
+        onClose={() => setEditTransactionId(null)}
+        onSaved={() => {
+          void (async () => {
+            try {
+              const [ppl, cats] = await Promise.all([
+                listPeoples(),
+                listCategories(),
+              ]);
+              setPeopleNameById(new Map(ppl.map((p) => [String(p.id), p.name])));
+              setCategoryNameById(
+                new Map(cats.map((c) => [String(c.id), c.name])),
+              );
+            } catch {
+              /* ignore */
+            }
+            await load(page, false);
+          })();
+        }}
+      />
     </AppTabScreen>
   );
 }
@@ -584,6 +668,23 @@ const styles = StyleSheet.create({
     fontFamily: "Poppins_400Regular",
     color: "#0B0B0B",
     lineHeight: 18,
+  },
+  metaChipsRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    marginTop: 8,
+  },
+  metaChip: {
+    alignSelf: "flex-start",
+    backgroundColor: "#0B0B0B",
+    color: "#FFFFFF",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    fontSize: 11,
+    fontFamily: "Poppins_600SemiBold",
+    overflow: "hidden",
   },
   cardActions: {
     marginTop: 4,

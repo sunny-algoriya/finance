@@ -41,7 +41,7 @@ export type AppTabParamList = {
   Peoples: undefined;
   PersonLedger: { personId: number | string; personName?: string };
   Categories: undefined;
-  Transactions: { openEditTransactionId?: string | number };
+  Transactions: undefined;
   SplitGroups: undefined;
   SelfTransfers: undefined;
   Activity: undefined;
@@ -121,11 +121,7 @@ function AppShell({ navigation }: NativeStackScreenProps<RootStackParamList, "Ap
 
   function goTo(key: AppMenuTabKey) {
     setIsMenuOpen(false);
-    if (key === "Transactions") {
-      navigation.navigate("App", { screen: "Transactions", params: {} });
-    } else {
-      navigation.navigate("App", { screen: key });
-    }
+    navigation.navigate("App", { screen: key });
   }
 
   return (

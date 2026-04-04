@@ -393,6 +393,8 @@ export async function listTransactionYearsOptions(): Promise<string[]> {
 export type SelfTransferNestedTxn = {
   id: number | string;
   account?: number | string;
+  person?: number | string | null;
+  category?: number | string | null;
   txn_date: string;
   description: string;
   amount: string;
@@ -420,9 +422,14 @@ export type PaginatedSelfTransferList = {
 };
 
 function normalizeSelfTransferNested(raw: any): SelfTransferNestedTxn {
+  const person = raw?.person ?? raw?.person_id ?? null;
+  const category = raw?.category ?? raw?.category_id ?? null;
   return {
     id: raw?.id ?? "",
     account: raw?.account,
+    person: person === null || person === undefined || person === "" ? null : person,
+    category:
+      category === null || category === undefined || category === "" ? null : category,
     txn_date: String(raw?.txn_date ?? ""),
     description: String(raw?.description ?? ""),
     amount: toMoneyString(raw?.amount),
