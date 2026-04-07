@@ -7,12 +7,52 @@ from rest_framework.exceptions import ValidationError
 from rest_framework.filters import SearchFilter
 from rest_framework.response import Response
 
-from transactions.models import Transaction
+from transactions.models import Transaction, get_person_balance
+from transactions.serializers import TransactionSerializer
 
 from .models import Person
 from .serializers import PersonSerializer
 from base_viewsets import BaseModelViewSet
 from transactions.query_helpers import parse_year_month_query_params
+
+
+LOAN_REPORT_TYPES = (
+    Transaction.TransactionType.LOAN_GIVEN,
+    Transaction.TransactionType.LOAN_TAKEN,
+    Transaction.TransactionType.REPAYMENT_IN,
+    Transaction.TransactionType.REPAYMENT_OUT,
+)
+
+
+def _debt_totals_for_qs(qs):
+    """Same rules as get_person_balance but on a queryset."""
+    given = (
+        qs.filter(txn_type=Transaction.TransactionType.LOAN_GIVEN).aggregate(s=Sum("debit"))["s"]
+        or Decimal("0")
+    )
+    taken = (
+        qs.filter(txn_type=Transaction.TransactionType.LOAN_TAKEN).aggregate(s=Sum("credit"))["s"]
+        or Decimal("0")
+    )
+    repaid_in = (
+        qs.filter(txn_type=Transaction.TransactionType.REPAYMENT_IN).aggregate(s=Sum("credit"))["s"]
+        or Decimal("0")
+    )
+    repaid_out = (
+        qs.filter(txn_type=Transaction.TransactionType.REPAYMENT_OUT).aggregate(s=Sum("debit"))["s"]
+        or Decimal("0")
+    )
+    they_owe = given - repaid_in
+    you_owe = taken - repaid_out
+    return {
+        "they_owe_you": they_owe,
+        "you_owe_them": you_owe,
+        "net": they_owe - you_owe,
+    }
+
+
+def _money_str(d: Decimal) -> str:
+    return format(d.quantize(Decimal("0.01")), "f")
 
 
 class PersonViewSet(BaseModelViewSet):
@@ -96,3 +136,122 @@ class PersonViewSet(BaseModelViewSet):
             payload["transactions"] = []
 
         return Response(payload)
+
+    @action(detail=True, methods=["get"], url_path="loan-report")
+    def loan_report(self, request, pk=None):
+        """
+        Loan / debt activity for this person (requires `person` on each transaction).
+
+        Types (txn_type):
+        - loan_given — you lent (debit)
+        - loan_taken — you borrowed (credit)
+        - repayment_in — they repaid you (credit)
+        - repayment_out — you repaid them (debit)
+
+        Query:
+        - types=comma-separated list or `all` (default all four), e.g. types=loan_given,loan_taken
+        - year, month, year_month — filter txn_date
+        - account=<id> — filter account
+
+        Response:
+        - balance_lifetime: they_owe_you / you_owe_them / net (all debt txns for this person)
+        - balance_period: same metrics but only for rows matching filters (if any filter applied)
+        - totals_by_type: debit/credit sums and counts per type (filtered queryset)
+        - by_type: full transaction payloads grouped by txn_type
+        """
+        person = self.get_object()
+        qp = request.query_params
+        year_int, month_int = parse_year_month_query_params(qp)
+
+        types_raw = (qp.get("types") or qp.get("txn_type") or "all").strip().lower()
+        allowed = {t.value for t in LOAN_REPORT_TYPES}
+        if types_raw == "all":
+            selected = list(allowed)
+        else:
+            selected = []
+            for part in types_raw.split(","):
+                p = part.strip()
+                if not p:
+                    continue
+                if p not in allowed:
+                    raise ValidationError(
+                        {
+                            "types": f'Invalid "{p}". Use: {", ".join(sorted(allowed))}, or all.'
+                        }
+                    )
+                if p not in selected:
+                    selected.append(p)
+            if not selected:
+                selected = list(allowed)
+
+        qs = Transaction.objects.filter(
+            user=request.user,
+            person=person,
+            txn_type__in=selected,
+        )
+
+        account_id_raw = qp.get("account")
+        if account_id_raw is not None:
+            try:
+                qs = qs.filter(account_id=int(account_id_raw))
+            except (TypeError, ValueError):
+                raise ValidationError({"account": "Invalid account id."})
+
+        if year_int is not None:
+            qs = qs.filter(txn_date__year=year_int)
+        if month_int is not None:
+            qs = qs.filter(txn_date__month=month_int)
+
+        qs = qs.select_related("account", "category").order_by("-txn_date", "-id")
+
+        bal_life = get_person_balance(person)
+        bal_period = _debt_totals_for_qs(qs)
+
+        totals_by_type = {}
+        for tt in selected:
+            sub = qs.filter(txn_type=tt)
+            cnt = sub.count()
+            if tt in (
+                Transaction.TransactionType.LOAN_GIVEN,
+                Transaction.TransactionType.REPAYMENT_OUT,
+            ):
+                s = sub.aggregate(x=Sum("debit"))["x"] or Decimal("0")
+                totals_by_type[tt] = {
+                    "side": "debit",
+                    "sum": _money_str(s),
+                    "count": cnt,
+                }
+            else:
+                s = sub.aggregate(x=Sum("credit"))["x"] or Decimal("0")
+                totals_by_type[tt] = {
+                    "side": "credit",
+                    "sum": _money_str(s),
+                    "count": cnt,
+                }
+
+        ctx = {"request": request}
+        by_type = {}
+        for tt in selected:
+            by_type[tt] = TransactionSerializer(
+                qs.filter(txn_type=tt).order_by("-txn_date", "-id"),
+                many=True,
+                context=ctx,
+            ).data
+
+        return Response(
+            {
+                "person": PersonSerializer(person, context=ctx).data,
+                "filters": {
+                    "year": year_int,
+                    "month": month_int,
+                    "types": selected,
+                    "account": qp.get("account"),
+                },
+                "summary": {
+                    "balance_lifetime": {k: _money_str(v) for k, v in bal_life.items()},
+                    "balance_period": {k: _money_str(v) for k, v in bal_period.items()},
+                    "totals_by_type": totals_by_type,
+                },
+                "by_type": by_type,
+            }
+        )
