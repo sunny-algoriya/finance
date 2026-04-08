@@ -292,6 +292,35 @@ export async function deleteTransaction(id: Transaction["id"]): Promise<void> {
   await api.delete(`/transactions/${id}/`);
 }
 
+export async function bulkUpdateTransactions(input: {
+  ids: Array<string | number>;
+  person?: string | number | null;
+  category?: string | number | null;
+  txn_type?: TransactionTxnType;
+}): Promise<Transaction[]> {
+  const payload: Record<string, any> = {
+    ids: input.ids.map((v) => String(v)),
+  };
+  if ("person" in input) payload.person = input.person ?? null;
+  if ("category" in input) payload.category = input.category ?? null;
+  if ("txn_type" in input) payload.txn_type = input.txn_type;
+  const res = await api.post("/transactions/bulk-update/", payload);
+  const items = Array.isArray(res.data) ? res.data : res.data?.results;
+  if (!Array.isArray(items)) return [];
+  return items.map(normalizeTxn);
+}
+
+export async function bulkDeleteTransactions(input: {
+  ids: Array<string | number>;
+}): Promise<{ deleted: number }> {
+  const res = await api.post("/transactions/bulk-delete/", {
+    ids: input.ids.map((v) => String(v)),
+  });
+  return {
+    deleted: Number(res.data?.deleted ?? 0),
+  };
+}
+
 export async function getTransaction(id: Transaction["id"]): Promise<Transaction> {
   const res = await api.get(`/transactions/${id}/`);
   return normalizeTxn(res.data);

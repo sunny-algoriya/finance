@@ -23,12 +23,14 @@ import AccountsScreen from "../screens/AccountsScreen";
 import AccountLedgerScreen from "../screens/AccountLedgerScreen";
 import PeoplesScreen from "../screens/PeoplesScreen";
 import PersonLedgerScreen from "../screens/PersonLedgerScreen";
+import PersonLoanReportScreen from "../screens/PersonLoanReportScreen";
 import CategoriesScreen from "../screens/CategoriesScreen";
 import TransactionsScreen from "../screens/TransactionsScreen";
 import SplitGroupsScreen from "../screens/SplitGroupsScreen";
 import SelfTransferScreen from "../screens/SelfTransferScreen";
 import { getToken } from "../services/auth";
 import { logout as logoutService } from "../services/auth";
+import { setUnauthorizedHandler } from "../services/api";
 
 export type AuthStackParamList = {
   Login: undefined;
@@ -40,6 +42,7 @@ export type AppTabParamList = {
   AccountLedger: { accountId: number | string; accountName?: string };
   Peoples: undefined;
   PersonLedger: { personId: number | string; personName?: string };
+  PersonLoanReport: { personId: number | string; personName?: string };
   Categories: undefined;
   Transactions: undefined;
   SplitGroups: undefined;
@@ -49,7 +52,10 @@ export type AppTabParamList = {
 };
 
 /** Tab routes reachable from the main menu (excludes nested flows like ledger detail). */
-export type AppMenuTabKey = Exclude<keyof AppTabParamList, "PersonLedger" | "AccountLedger">;
+export type AppMenuTabKey = Exclude<
+  keyof AppTabParamList,
+  "PersonLedger" | "AccountLedger" | "PersonLoanReport"
+>;
 
 export type RootStackParamList = {
   Auth: NavigatorScreenParams<AuthStackParamList>;
@@ -135,6 +141,7 @@ function AppShell({ navigation }: NativeStackScreenProps<RootStackParamList, "Ap
         <AppStack.Screen name="AccountLedger" component={AccountLedgerScreen} />
         <AppStack.Screen name="Peoples" component={PeoplesScreen} />
         <AppStack.Screen name="PersonLedger" component={PersonLedgerScreen} />
+        <AppStack.Screen name="PersonLoanReport" component={PersonLoanReportScreen} />
         <AppStack.Screen name="Categories" component={CategoriesScreen} />
         <AppStack.Screen name="SplitGroups" component={SplitGroupsScreen} />
         <AppStack.Screen name="SelfTransfers" component={SelfTransferScreen} />
@@ -231,6 +238,15 @@ function AppShell({ navigation }: NativeStackScreenProps<RootStackParamList, "Ap
 export default function AppNavigator() {
   const [accessToken, setAccessToken] = React.useState<string | null>(null);
   const [isHydrating, setIsHydrating] = React.useState(true);
+
+  React.useEffect(() => {
+    setUnauthorizedHandler(() => {
+      setAccessToken(null);
+    });
+    return () => {
+      setUnauthorizedHandler(null);
+    };
+  }, []);
 
   React.useEffect(() => {
     let mounted = true;

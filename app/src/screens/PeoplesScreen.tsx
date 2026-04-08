@@ -275,6 +275,20 @@ export default function PeoplesScreen() {
                   >
                     <Text style={styles.smallBtnLedgerText}>Ledger</Text>
                   </Pressable>
+                  <Pressable
+                    onPress={() =>
+                      navigation.navigate("PersonLoanReport", {
+                        personId: p.id,
+                        personName: p.name,
+                      })
+                    }
+                    style={({ pressed }) => [
+                      styles.smallBtnReport,
+                      pressed && styles.smallBtnReportPressed,
+                    ]}
+                  >
+                    <Text style={styles.smallBtnReportText}>Report</Text>
+                  </Pressable>
                 </View>
               </View>
             ))
@@ -443,6 +457,20 @@ const styles = StyleSheet.create({
   },
   smallBtnLedgerPressed: { backgroundColor: "#EEF0F0" },
   smallBtnLedgerText: { color: "#0B0B0B", fontFamily: "Poppins_600SemiBold", fontSize: 12 },
+  smallBtnReport: {
+    borderWidth: 1,
+    borderColor: "#0B0B0B",
+    borderRadius: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    backgroundColor: "#0B0B0B",
+  },
+  smallBtnReportPressed: { opacity: 0.88 },
+  smallBtnReportText: {
+    color: "#FFFFFF",
+    fontFamily: "Poppins_600SemiBold",
+    fontSize: 12,
+  },
 
   backdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.35)" },
   sheet: {

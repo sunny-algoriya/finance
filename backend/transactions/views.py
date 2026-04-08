@@ -223,6 +223,74 @@ class TransactionViewSet(BaseModelViewSet):
             )
         )
 
+    @action(detail=False, methods=["post"], url_path="bulk-update")
+    def bulk_update(self, request):
+        """
+        Bulk update selected transactions for current user.
+        Body:
+          {
+            "ids": [1,2,3],
+            "person": <person_id|null>,      # optional
+            "category": <category_id|null>,  # optional
+            "txn_type": <string>             # optional
+          }
+        """
+        raw_ids = request.data.get("ids")
+        if not isinstance(raw_ids, list) or len(raw_ids) == 0:
+            raise ValidationError({"ids": "Provide a non-empty ids array."})
+
+        ids = [str(v) for v in raw_ids]
+        qs = Transaction.objects.filter(user=request.user, id__in=ids)
+        found_ids = {str(x) for x in qs.values_list("id", flat=True)}
+        missing = [v for v in ids if v not in found_ids]
+        if missing:
+            raise ValidationError({"ids": f"Some ids are invalid for this user: {missing}"})
+
+        updates = {}
+        if "person" in request.data:
+            updates["person"] = request.data.get("person")
+        if "category" in request.data:
+            updates["category"] = request.data.get("category")
+        if "txn_type" in request.data:
+            updates["txn_type"] = request.data.get("txn_type")
+        if not updates:
+            raise ValidationError({"detail": "Provide at least one field: person, category, or txn_type."})
+
+        updated = []
+        for txn in qs:
+            serializer = self.get_serializer(
+                txn,
+                data=updates,
+                partial=True,
+                context={"request": request},
+            )
+            serializer.is_valid(raise_exception=True)
+            updated.append(serializer.save())
+
+        return Response(
+            self.get_serializer(updated, many=True, context={"request": request}).data
+        )
+
+    @action(detail=False, methods=["post"], url_path="bulk-delete")
+    def bulk_delete(self, request):
+        """
+        Bulk delete selected transactions for current user.
+        Body: { "ids": [1,2,3] }
+        """
+        raw_ids = request.data.get("ids")
+        if not isinstance(raw_ids, list) or len(raw_ids) == 0:
+            raise ValidationError({"ids": "Provide a non-empty ids array."})
+
+        ids = [str(v) for v in raw_ids]
+        qs = Transaction.objects.filter(user=request.user, id__in=ids)
+        found_ids = {str(x) for x in qs.values_list("id", flat=True)}
+        missing = [v for v in ids if v not in found_ids]
+        if missing:
+            raise ValidationError({"ids": f"Some ids are invalid for this user: {missing}"})
+
+        deleted_count, _ = qs.delete()
+        return Response({"deleted": deleted_count})
+
     @action(detail=False, methods=["get"], url_path="self-transfer")
     def self_transfer(self, request):
         """

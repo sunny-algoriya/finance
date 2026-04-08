@@ -31,6 +31,8 @@ import {
 import { formatMoney2 } from "../utils/money";
 import AppTabScreen from "../components/AppTabScreen";
 import {
+  bulkDeleteTransactions,
+  bulkUpdateTransactions,
   createTransaction,
   deleteTransaction,
   listTransactionsByYearMonth,
@@ -118,6 +120,51 @@ function txnTypeLabel(v: TransactionTxnType): string {
     .split("_")
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(" ");
+}
+
+function txnTypePillStyles(v: TransactionTxnType) {
+  switch (v) {
+    case "income":
+      return {
+        wrap: styles.cellTypePillIncome,
+        text: styles.cellTypePillIncomeText,
+      };
+    case "expense":
+      return {
+        wrap: styles.cellTypePillExpense,
+        text: styles.cellTypePillExpenseText,
+      };
+    case "transfer":
+      return {
+        wrap: styles.cellTypePillTransfer,
+        text: styles.cellTypePillTransferText,
+      };
+    case "loan_given":
+      return {
+        wrap: styles.cellTypePillLoanGiven,
+        text: styles.cellTypePillLoanGivenText,
+      };
+    case "loan_taken":
+      return {
+        wrap: styles.cellTypePillLoanTaken,
+        text: styles.cellTypePillLoanTakenText,
+      };
+    case "repayment_in":
+      return {
+        wrap: styles.cellTypePillRepaymentIn,
+        text: styles.cellTypePillRepaymentInText,
+      };
+    case "repayment_out":
+      return {
+        wrap: styles.cellTypePillRepaymentOut,
+        text: styles.cellTypePillRepaymentOutText,
+      };
+    default:
+      return {
+        wrap: undefined,
+        text: undefined,
+      };
+  }
 }
 
 export default function TransactionsScreen() {
@@ -209,6 +256,17 @@ export default function TransactionsScreen() {
   const [isMonthPickerOpen, setIsMonthPickerOpen] = React.useState(false);
   const [isCustomDateModalOpen, setIsCustomDateModalOpen] =
     React.useState(false);
+  const [selectedTxnIds, setSelectedTxnIds] = React.useState<string[]>([]);
+  const [isBulkEditOpen, setIsBulkEditOpen] = React.useState(false);
+  const [bulkPersonId, setBulkPersonId] = React.useState<string | null>(null);
+  const [bulkCategoryId, setBulkCategoryId] = React.useState<string | null>(
+    null,
+  );
+  const [bulkTxnType, setBulkTxnType] =
+    React.useState<TransactionTxnType | null>(null);
+  const [bulkPersonQuery, setBulkPersonQuery] = React.useState("");
+  const [bulkCategoryQuery, setBulkCategoryQuery] = React.useState("");
+  const [isBulkSaving, setIsBulkSaving] = React.useState(false);
 
   const [isFilterSidebarOpen, setIsFilterSidebarOpen] = React.useState(false);
   const [filterAccountId, setFilterAccountId] = React.useState<string | null>(
@@ -409,6 +467,18 @@ export default function TransactionsScreen() {
     if (!q) return categories;
     return categories.filter((c) => c.name.toLowerCase().includes(q));
   }, [categories, categoryPickerQuery]);
+
+  const peopleFilteredForBulk = React.useMemo(() => {
+    const q = bulkPersonQuery.trim().toLowerCase();
+    if (!q) return people;
+    return people.filter((p) => p.name.toLowerCase().includes(q));
+  }, [people, bulkPersonQuery]);
+
+  const categoriesFilteredForBulk = React.useMemo(() => {
+    const q = bulkCategoryQuery.trim().toLowerCase();
+    if (!q) return categories;
+    return categories.filter((c) => c.name.toLowerCase().includes(q));
+  }, [categories, bulkCategoryQuery]);
 
   const canCreateCategoryFromQuery = React.useMemo(() => {
     const q = categoryPickerQuery.trim().toLowerCase();
@@ -887,6 +957,102 @@ export default function TransactionsScreen() {
     await doDelete();
   }
 
+  const allVisibleTxnIds = React.useMemo(
+    () => txns.map((t) => String(t.id)),
+    [txns],
+  );
+  const areAllVisibleSelected =
+    allVisibleTxnIds.length > 0 &&
+    allVisibleTxnIds.every((id) => selectedTxnIds.includes(id));
+
+  function toggleTxnSelection(id: string | number) {
+    const key = String(id);
+    setSelectedTxnIds((prev) =>
+      prev.includes(key) ? prev.filter((x) => x !== key) : [...prev, key],
+    );
+  }
+
+  function toggleSelectAllVisible() {
+    setSelectedTxnIds((prev) => {
+      if (areAllVisibleSelected) {
+        return prev.filter((id) => !allVisibleTxnIds.includes(id));
+      }
+      const merged = new Set([...prev, ...allVisibleTxnIds]);
+      return Array.from(merged);
+    });
+  }
+
+  async function onBulkDeleteSelected() {
+    if (selectedTxnIds.length === 0 || isBulkSaving) return;
+    const doDelete = async () => {
+      setIsBulkSaving(true);
+      try {
+        await bulkDeleteTransactions({ ids: selectedTxnIds });
+        setTxns((prev) =>
+          prev.filter((t) => !selectedTxnIds.includes(String(t.id))),
+        );
+        setSelectedTxnIds([]);
+      } catch (err: any) {
+        const message =
+          err?.response?.data?.detail ??
+          err?.response?.data?.message ??
+          err?.message ??
+          "Failed bulk delete.";
+        Alert.alert("Error", String(message));
+      } finally {
+        setIsBulkSaving(false);
+      }
+    };
+    if (IS_WEB) {
+      if (window.confirm(`Delete ${selectedTxnIds.length} transactions?`)) {
+        void doDelete();
+      }
+      return;
+    }
+    Alert.alert(
+      "Delete selected",
+      `Delete ${selectedTxnIds.length} transactions? This cannot be undone.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Delete",
+          style: "destructive",
+          onPress: () => void doDelete(),
+        },
+      ],
+    );
+  }
+
+  async function onApplyBulkUpdate() {
+    if (selectedTxnIds.length === 0 || isBulkSaving) return;
+    setIsBulkSaving(true);
+    try {
+      await bulkUpdateTransactions({
+        ids: selectedTxnIds,
+        person: bulkPersonId ?? null,
+        category: bulkCategoryId ?? null,
+        txn_type: bulkTxnType ?? undefined,
+      });
+      setIsBulkEditOpen(false);
+      setSelectedTxnIds([]);
+      await loadTxns(false, undefined, undefined, 1);
+    } catch (err: any) {
+      const message =
+        err?.response?.data?.detail ??
+        err?.response?.data?.message ??
+        err?.message ??
+        "Failed bulk update.";
+      Alert.alert("Error", String(message));
+    } finally {
+      setIsBulkSaving(false);
+    }
+  }
+
+  React.useEffect(() => {
+    const visible = new Set(allVisibleTxnIds);
+    setSelectedTxnIds((prev) => prev.filter((id) => visible.has(id)));
+  }, [allVisibleTxnIds]);
+
   const accountLabel =
     accountId != null ? accountById.get(String(accountId))?.name : undefined;
   const personLabel =
@@ -1163,10 +1329,7 @@ export default function TransactionsScreen() {
               : "Expand credit and debit totals"
           }
         >
-          <Text
-            style={styles.periodTotalsRangeHint}
-            numberOfLines={2}
-          >
+          <Text style={styles.periodTotalsRangeHint} numberOfLines={2}>
             {filterTotalsHint}
           </Text>
           <Feather
@@ -1919,6 +2082,23 @@ export default function TransactionsScreen() {
           <Text style={styles.txnMetaCountText} numberOfLines={2}>
             {txnListMetaLine}
           </Text>
+          <Pressable
+            onPress={toggleSelectAllVisible}
+            style={({ pressed }) => [
+              styles.bulkActionBtn,
+              pressed && styles.bulkActionBtnPressed,
+            ]}
+            accessibilityRole="button"
+            accessibilityLabel={
+              areAllVisibleSelected
+                ? "Unselect all listed"
+                : "Select all listed"
+            }
+          >
+            <Text style={styles.bulkActionBtnText}>
+              {areAllVisibleSelected ? "Unselect all" : "Select all"}
+            </Text>
+          </Pressable>
           {txnTotalCount > 0 && (txnHasNext || txnHasPrev) ? (
             <View style={styles.txnPagerInline}>
               <Pressable
@@ -1960,6 +2140,49 @@ export default function TransactionsScreen() {
           ) : null}
         </View>
       )}
+      {!isLoading && selectedTxnIds.length > 0 ? (
+        <View style={styles.bulkBar}>
+          <Text style={styles.bulkBarText}>
+            {selectedTxnIds.length} selected
+          </Text>
+          <Pressable
+            onPress={() => {
+              setBulkPersonId(null);
+              setBulkCategoryId(null);
+              setBulkTxnType(null);
+              setBulkPersonQuery("");
+              setBulkCategoryQuery("");
+              setIsBulkEditOpen(true);
+            }}
+            style={({ pressed }) => [
+              styles.bulkActionBtn,
+              pressed && styles.bulkActionBtnPressed,
+            ]}
+          >
+            <Text style={styles.bulkActionBtnText}>Bulk update</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => void onBulkDeleteSelected()}
+            disabled={isBulkSaving}
+            style={({ pressed }) => [
+              styles.bulkDangerBtn,
+              pressed && styles.bulkDangerBtnPressed,
+              isBulkSaving && { opacity: 0.6 },
+            ]}
+          >
+            <Text style={styles.bulkDangerBtnText}>Bulk delete</Text>
+          </Pressable>
+          <Pressable
+            onPress={() => setSelectedTxnIds([])}
+            style={({ pressed }) => [
+              styles.bulkActionBtn,
+              pressed && styles.bulkActionBtnPressed,
+            ]}
+          >
+            <Text style={styles.bulkActionBtnText}>Clear</Text>
+          </Pressable>
+        </View>
+      ) : null}
 
       {isLoading ? (
         <View style={styles.center}>
@@ -1979,6 +2202,7 @@ export default function TransactionsScreen() {
             <View style={styles.txnTableWrap}>
               <Text style={styles.tableTitle}>Transactions</Text>
               <View style={styles.tableHead}>
+                <Text style={[styles.th, styles.thSelectCol]}>Sel</Text>
                 <Text
                   style={[
                     styles.th,
@@ -1999,6 +2223,7 @@ export default function TransactionsScreen() {
                 const personName = hasPerson
                   ? (peopleById.get(String(t.person))?.name ?? "Person")
                   : undefined;
+                const txnTypePill = txnTypePillStyles(t.txn_type);
 
                 const amountText = isZeroMoney(t.amount)
                   ? ""
@@ -2015,6 +2240,23 @@ export default function TransactionsScreen() {
                     ]}
                   >
                     <View style={styles.txnTableRow}>
+                      <Pressable
+                        onPress={() => toggleTxnSelection(t.id)}
+                        style={({ pressed }) => [
+                          styles.selectCellBtn,
+                          pressed && styles.selectCellBtnPressed,
+                          selectedTxnIds.includes(String(t.id)) &&
+                            styles.selectCellBtnActive,
+                        ]}
+                        accessibilityRole="checkbox"
+                        accessibilityState={{
+                          checked: selectedTxnIds.includes(String(t.id)),
+                        }}
+                      >
+                        {selectedTxnIds.includes(String(t.id)) ? (
+                          <Feather name="check" size={14} color="#FFFFFF" />
+                        ) : null}
+                      </Pressable>
                       <View
                         style={[
                           styles.cellDateColumn,
@@ -2099,6 +2341,13 @@ export default function TransactionsScreen() {
                             ? ` · ${categoryById.get(String(t.category))?.name ?? "Category"}`
                             : ""}
                         </Text>
+                        <View style={styles.cellTypeRow}>
+                          <View style={[styles.cellTypePill, txnTypePill.wrap]}>
+                            <Text style={[styles.cellTypePillText, txnTypePill.text]}>
+                              {txnTypeLabel(t.txn_type)}
+                            </Text>
+                          </View>
+                        </View>
                       </Pressable>
                       <Text
                         style={[styles.cellMoney, amountStyle]}
@@ -2156,6 +2405,151 @@ export default function TransactionsScreen() {
               </Pressable>
             ))}
           </ScrollView>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={isBulkEditOpen}
+        animationType="fade"
+        transparent
+        onRequestClose={() => (isBulkSaving ? null : setIsBulkEditOpen(false))}
+      >
+        <Pressable
+          style={styles.backdrop}
+          onPress={() => (isBulkSaving ? null : setIsBulkEditOpen(false))}
+        />
+        <View style={styles.pickerSheet}>
+          <Text style={styles.pickerTitle}>Bulk update selected</Text>
+          <View style={{ gap: 10 }}>
+            <View style={{ gap: 6 }}>
+              <Text style={styles.label}>Person</Text>
+              <TextInput
+                value={bulkPersonQuery}
+                onChangeText={setBulkPersonQuery}
+                placeholder="Search person..."
+                placeholderTextColor="#9A9A9A"
+                autoCapitalize="none"
+                autoCorrect={false}
+                style={styles.pickerSearchInput}
+              />
+              <View style={styles.bulkChipWrap}>
+                <Pressable
+                  onPress={() => setBulkPersonId(null)}
+                  style={({ pressed }) => [
+                    styles.bulkChipBtn,
+                    pressed && styles.pickerRowPressed,
+                    bulkPersonId === null && styles.pickerRowActive,
+                  ]}
+                >
+                  <Text style={styles.bulkChipText}>None</Text>
+                </Pressable>
+                {peopleFilteredForBulk.map((p) => (
+                  <Pressable
+                    key={`bulk-person-${p.id}`}
+                    onPress={() => setBulkPersonId(String(p.id))}
+                    style={({ pressed }) => [
+                      styles.bulkChipBtn,
+                      pressed && styles.pickerRowPressed,
+                      bulkPersonId === String(p.id) && styles.pickerRowActive,
+                    ]}
+                  >
+                    <Text style={styles.bulkChipText}>{p.name}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+            <View style={{ gap: 6 }}>
+              <Text style={styles.label}>Category</Text>
+              <TextInput
+                value={bulkCategoryQuery}
+                onChangeText={setBulkCategoryQuery}
+                placeholder="Search category..."
+                placeholderTextColor="#9A9A9A"
+                autoCapitalize="none"
+                autoCorrect={false}
+                style={styles.pickerSearchInput}
+              />
+              <View style={styles.bulkChipWrap}>
+                <Pressable
+                  onPress={() => setBulkCategoryId(null)}
+                  style={({ pressed }) => [
+                    styles.bulkChipBtn,
+                    pressed && styles.pickerRowPressed,
+                    bulkCategoryId === null && styles.pickerRowActive,
+                  ]}
+                >
+                  <Text style={styles.bulkChipText}>None</Text>
+                </Pressable>
+                {categoriesFilteredForBulk.map((c) => (
+                  <Pressable
+                    key={`bulk-category-${c.id}`}
+                    onPress={() => setBulkCategoryId(String(c.id))}
+                    style={({ pressed }) => [
+                      styles.bulkChipBtn,
+                      pressed && styles.pickerRowPressed,
+                      bulkCategoryId === String(c.id) && styles.pickerRowActive,
+                    ]}
+                  >
+                    <Text style={styles.bulkChipText}>{c.name}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+            <View style={{ gap: 6 }}>
+              <Text style={styles.label}>Type</Text>
+              <View style={styles.bulkChipWrap}>
+                <Pressable
+                  onPress={() => setBulkTxnType(null)}
+                  style={({ pressed }) => [
+                    styles.bulkChipBtn,
+                    pressed && styles.pickerRowPressed,
+                    bulkTxnType === null && styles.pickerRowActive,
+                  ]}
+                >
+                  <Text style={styles.bulkChipText}>Keep current</Text>
+                </Pressable>
+                {TRANSACTION_TXN_TYPES.map((opt) => (
+                  <Pressable
+                    key={`bulk-type-${opt}`}
+                    onPress={() => setBulkTxnType(opt)}
+                    style={({ pressed }) => [
+                      styles.bulkChipBtn,
+                      pressed && styles.pickerRowPressed,
+                      bulkTxnType === opt && styles.pickerRowActive,
+                    ]}
+                  >
+                    <Text style={styles.bulkChipText}>{txnTypeLabel(opt)}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+            <View style={{ flexDirection: "row", gap: 8 }}>
+              <Pressable
+                onPress={() => setIsBulkEditOpen(false)}
+                disabled={isBulkSaving}
+                style={({ pressed }) => [
+                  styles.secondaryResetBtn,
+                  pressed && styles.secondaryResetBtnPressed,
+                  { flex: 1 },
+                ]}
+              >
+                <Text style={styles.secondaryResetText}>Cancel</Text>
+              </Pressable>
+              <Pressable
+                onPress={() => void onApplyBulkUpdate()}
+                disabled={isBulkSaving}
+                style={({ pressed }) => [
+                  styles.saveBtn,
+                  (pressed || isBulkSaving) && styles.saveBtnPressed,
+                  { flex: 1 },
+                ]}
+              >
+                <Text style={styles.saveBtnText}>
+                  {isBulkSaving ? "Updating..." : "Apply"}
+                </Text>
+              </Pressable>
+            </View>
+          </View>
         </View>
       </Modal>
 
@@ -3248,6 +3642,45 @@ const styles = StyleSheet.create({
     fontFamily: "Poppins_400Regular",
     fontSize: 12,
   },
+  bulkBar: {
+    marginBottom: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  bulkBarText: {
+    color: "#0B0B0B",
+    fontFamily: "Poppins_600SemiBold",
+    fontSize: 12,
+  },
+  bulkActionBtn: {
+    borderWidth: 1,
+    borderColor: "#E7E7E7",
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    backgroundColor: "#FFFFFF",
+  },
+  bulkActionBtnPressed: { backgroundColor: "#F5F5F5" },
+  bulkActionBtnText: {
+    color: "#0B0B0B",
+    fontFamily: "Poppins_600SemiBold",
+    fontSize: 12,
+  },
+  bulkDangerBtn: {
+    borderWidth: 1,
+    borderColor: "#B42318",
+    borderRadius: 10,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    backgroundColor: "#FFF5F5",
+  },
+  bulkDangerBtnPressed: { backgroundColor: "#FEEAEA" },
+  bulkDangerBtnText: {
+    color: "#B42318",
+    fontFamily: "Poppins_600SemiBold",
+    fontSize: 12,
+  },
   txnPagerInline: {
     flexDirection: "row",
     alignItems: "center",
@@ -3288,6 +3721,7 @@ const styles = StyleSheet.create({
     gap: 8,
     marginBottom: 0,
   },
+  thSelectCol: { width: 42, textAlign: "center" },
   th: { color: "#6B6B6B", fontFamily: "Poppins_600SemiBold", fontSize: 11 },
   thDateCol: { width: 86 },
   thDateColWide: { width: 132 },
@@ -3304,6 +3738,22 @@ const styles = StyleSheet.create({
     alignItems: "flex-start",
     paddingVertical: 12,
     gap: 8,
+  },
+  selectCellBtn: {
+    width: 26,
+    height: 26,
+    borderWidth: 1,
+    borderColor: "#D6D6D6",
+    borderRadius: 7,
+    marginRight: 10,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FFFFFF",
+  },
+  selectCellBtnPressed: { backgroundColor: "#F5F5F5" },
+  selectCellBtnActive: {
+    borderColor: "#0B0B0B",
+    backgroundColor: "#0B0B0B",
   },
   cellDateColumn: {
     width: 86,
@@ -3388,6 +3838,60 @@ const styles = StyleSheet.create({
     color: "rgba(255,255,255,0.78)",
     fontFamily: "Poppins_500Medium",
   },
+  cellTypeRow: {
+    marginTop: 2,
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+  },
+  cellTypePill: {
+    borderWidth: 1,
+    borderColor: "#E7E7E7",
+    borderRadius: 999,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    backgroundColor: "#FFFFFF",
+  },
+  cellTypePillText: {
+    color: "#0B0B0B",
+    fontFamily: "Poppins_600SemiBold",
+    fontSize: 10,
+  },
+  cellTypePillIncome: {
+    borderColor: "#C8E6D4",
+    backgroundColor: "#F1FBF5",
+  },
+  cellTypePillIncomeText: { color: "#2E7D5A" },
+  cellTypePillExpense: {
+    borderColor: "#F0C4C4",
+    backgroundColor: "#FFF5F5",
+  },
+  cellTypePillExpenseText: { color: "#B83C3C" },
+  cellTypePillTransfer: {
+    borderColor: "#C9D8F5",
+    backgroundColor: "#F4F7FF",
+  },
+  cellTypePillTransferText: { color: "#2F4F8C" },
+  cellTypePillLoanGiven: {
+    borderColor: "#E6D1F4",
+    backgroundColor: "#FAF5FF",
+  },
+  cellTypePillLoanGivenText: { color: "#6B3FA0" },
+  cellTypePillLoanTaken: {
+    borderColor: "#F6D8C2",
+    backgroundColor: "#FFF8F2",
+  },
+  cellTypePillLoanTakenText: { color: "#A65A21" },
+  cellTypePillRepaymentIn: {
+    borderColor: "#C7E8ED",
+    backgroundColor: "#F2FBFD",
+  },
+  cellTypePillRepaymentInText: { color: "#1F6F7A" },
+  cellTypePillRepaymentOut: {
+    borderColor: "#E4E4E4",
+    backgroundColor: "#F8F8F8",
+  },
+  cellTypePillRepaymentOutText: { color: "#555555" },
   cellMoney: {
     width: 62,
     flexShrink: 0,
@@ -3698,6 +4202,25 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   pickerRowPressed: { backgroundColor: "#F5F5F5" },
+  pickerRowActive: { borderColor: "#0B0B0B", backgroundColor: "#F5F5F5" },
+  bulkChipWrap: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+  },
+  bulkChipBtn: {
+    borderWidth: 1,
+    borderColor: "#E7E7E7",
+    borderRadius: 999,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: "#FFFFFF",
+  },
+  bulkChipText: {
+    color: "#0B0B0B",
+    fontFamily: "Poppins_600SemiBold",
+    fontSize: 12,
+  },
   pickerRowText: {
     color: "#0B0B0B",
     fontFamily: "Poppins_600SemiBold",
