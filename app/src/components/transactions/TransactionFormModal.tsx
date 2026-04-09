@@ -13,6 +13,7 @@ import {
   View,
 } from "react-native";
 import { Feather } from "@expo/vector-icons";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 import { listAccounts, type Account } from "../../services/accounts";
 import {
@@ -332,6 +333,7 @@ export function TransactionFormModal({
                 closeModal();
               }}
             />
+            <SafeAreaView style={{ flex: 1, width: "100%" }} edges={["top", "bottom", "left", "right"]}>
             <View style={styles.sheet}>
               <View style={styles.sheetHeader}>
                 <Text style={styles.sheetTitle}>
@@ -351,6 +353,7 @@ export function TransactionFormModal({
               </View>
 
               <ScrollView
+                style={{ flex: 1 }}
                 keyboardShouldPersistTaps="handled"
                 keyboardDismissMode={Platform.OS === "ios" ? "interactive" : "on-drag"}
                 showsVerticalScrollIndicator
@@ -543,195 +546,230 @@ export function TransactionFormModal({
                 ) : null}
               </ScrollView>
             </View>
+            </SafeAreaView>
           </View>
         </KeyboardAvoidingView>
       </Modal>
 
       <Modal
         visible={isAccountPickerOpen}
-        animationType="fade"
+        animationType="slide"
         transparent
         onRequestClose={() => setIsAccountPickerOpen(false)}
       >
-        <Pressable style={styles.backdrop} onPress={() => setIsAccountPickerOpen(false)} />
-        <View style={styles.pickerSheet}>
-          <Text style={styles.pickerTitle}>Select account</Text>
-          <ScrollView contentContainerStyle={{ gap: 10 }}>
-            {accounts.map((a) => (
-              <Pressable
-                key={String(a.id)}
-                onPress={() => {
-                  setAccountId(a.id);
-                  setIsAccountPickerOpen(false);
-                }}
-                style={({ pressed }) => [styles.pickerRow, pressed && styles.pickerRowPressed]}
-              >
-                <Text style={styles.pickerRowText}>{a.name}</Text>
+        <View style={styles.pickerModalRoot}>
+          <SafeAreaView style={styles.pickerSheetFull} edges={["top", "bottom", "left", "right"]}>
+            <View style={styles.pickerSheetHeader}>
+              <Text style={styles.pickerTitleInHeader} numberOfLines={1}>
+                Select account
+              </Text>
+              <Pressable onPress={() => setIsAccountPickerOpen(false)} hitSlop={8}>
+                <Text style={styles.closeBtnText}>Close</Text>
               </Pressable>
-            ))}
-          </ScrollView>
+            </View>
+            <ScrollView
+              style={styles.pickerListScroll}
+              contentContainerStyle={styles.pickerListContent}
+              keyboardShouldPersistTaps="handled"
+            >
+              {accounts.map((a) => (
+                <Pressable
+                  key={String(a.id)}
+                  onPress={() => {
+                    setAccountId(a.id);
+                    setIsAccountPickerOpen(false);
+                  }}
+                  style={({ pressed }) => [styles.pickerRow, pressed && styles.pickerRowPressed]}
+                >
+                  <Text style={styles.pickerRowText}>{a.name}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          </SafeAreaView>
         </View>
       </Modal>
 
       <Modal
         visible={isPersonPickerOpen}
-        animationType="fade"
+        animationType="slide"
         transparent
         onRequestClose={() => setIsPersonPickerOpen(false)}
       >
-        <Pressable style={styles.backdrop} onPress={() => setIsPersonPickerOpen(false)} />
-        <View style={styles.pickerSheet}>
-          <Text style={styles.pickerTitle}>Select person</Text>
-          <TextInput
-            value={personPickerQuery}
-            onChangeText={setPersonPickerQuery}
-            placeholder="Search person…"
-            placeholderTextColor="#6B6B6B"
-            style={styles.pickerSearchInput}
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-          <ScrollView contentContainerStyle={{ gap: 10 }}>
-            <Pressable
-              onPress={() => {
-                setPersonId(null);
-                setIsPersonPickerOpen(false);
-              }}
-              style={({ pressed }) => [styles.pickerRow, pressed && styles.pickerRowPressed]}
-            >
-              <Text style={styles.pickerRowText}>None</Text>
-            </Pressable>
-            {canCreatePersonFromQuery ? (
-              <Pressable
-                onPress={async () => {
-                  if (isPersonSaving) return;
-                  const trimmed = personPickerQuery.trim();
-                  if (!trimmed) return;
-                  setIsPersonSaving(true);
-                  try {
-                    const created = await createPeople({ name: trimmed });
-                    await refreshPeople(created.id);
-                    setPersonPickerQuery("");
-                    setIsPersonPickerOpen(false);
-                  } catch (err: any) {
-                    const message =
-                      err?.response?.data?.detail ??
-                      err?.response?.data?.message ??
-                      err?.message ??
-                      "Failed to create person.";
-                    Alert.alert("Error", String(message));
-                  } finally {
-                    setIsPersonSaving(false);
-                  }
-                }}
-                disabled={isPersonSaving}
-                style={({ pressed }) => [
-                  styles.pickerRow,
-                  styles.pickerCreateRow,
-                  (pressed || isPersonSaving) && styles.pickerRowPressed,
-                ]}
-              >
-                <Feather name="plus" size={14} color="#0B0B0B" />
-                <Text style={styles.pickerRowText}>
-                  {isPersonSaving ? "Adding..." : `Add "${personPickerQuery.trim()}"`}
-                </Text>
+        <View style={styles.pickerModalRoot}>
+          <SafeAreaView style={styles.pickerSheetFull} edges={["top", "bottom", "left", "right"]}>
+            <View style={styles.pickerSheetHeader}>
+              <Text style={styles.pickerTitleInHeader} numberOfLines={1}>
+                Select person
+              </Text>
+              <Pressable onPress={() => setIsPersonPickerOpen(false)} hitSlop={8}>
+                <Text style={styles.closeBtnText}>Close</Text>
               </Pressable>
-            ) : null}
-            {peopleFilteredForTxn.map((p) => (
+            </View>
+            <TextInput
+              value={personPickerQuery}
+              onChangeText={setPersonPickerQuery}
+              placeholder="Search person…"
+              placeholderTextColor="#6B6B6B"
+              style={[styles.pickerSearchInput, styles.pickerSearchInFull]}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <ScrollView
+              style={styles.pickerListScroll}
+              contentContainerStyle={styles.pickerListContent}
+              keyboardShouldPersistTaps="handled"
+            >
               <Pressable
-                key={String(p.id)}
                 onPress={() => {
-                  setPersonId(p.id);
+                  setPersonId(null);
                   setIsPersonPickerOpen(false);
                 }}
                 style={({ pressed }) => [styles.pickerRow, pressed && styles.pickerRowPressed]}
               >
-                <Text style={styles.pickerRowText}>{p.name}</Text>
+                <Text style={styles.pickerRowText}>None</Text>
               </Pressable>
-            ))}
-          </ScrollView>
+              {canCreatePersonFromQuery ? (
+                <Pressable
+                  onPress={async () => {
+                    if (isPersonSaving) return;
+                    const trimmed = personPickerQuery.trim();
+                    if (!trimmed) return;
+                    setIsPersonSaving(true);
+                    try {
+                      const created = await createPeople({ name: trimmed });
+                      await refreshPeople(created.id);
+                      setPersonPickerQuery("");
+                      setIsPersonPickerOpen(false);
+                    } catch (err: any) {
+                      const message =
+                        err?.response?.data?.detail ??
+                        err?.response?.data?.message ??
+                        err?.message ??
+                        "Failed to create person.";
+                      Alert.alert("Error", String(message));
+                    } finally {
+                      setIsPersonSaving(false);
+                    }
+                  }}
+                  disabled={isPersonSaving}
+                  style={({ pressed }) => [
+                    styles.pickerRow,
+                    styles.pickerCreateRow,
+                    (pressed || isPersonSaving) && styles.pickerRowPressed,
+                  ]}
+                >
+                  <Feather name="plus" size={14} color="#0B0B0B" />
+                  <Text style={styles.pickerRowText}>
+                    {isPersonSaving ? "Adding..." : `Add "${personPickerQuery.trim()}"`}
+                  </Text>
+                </Pressable>
+              ) : null}
+              {peopleFilteredForTxn.map((p) => (
+                <Pressable
+                  key={String(p.id)}
+                  onPress={() => {
+                    setPersonId(p.id);
+                    setIsPersonPickerOpen(false);
+                  }}
+                  style={({ pressed }) => [styles.pickerRow, pressed && styles.pickerRowPressed]}
+                >
+                  <Text style={styles.pickerRowText}>{p.name}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          </SafeAreaView>
         </View>
       </Modal>
 
       <Modal
         visible={isCategoryPickerOpen}
-        animationType="fade"
+        animationType="slide"
         transparent
         onRequestClose={() => setIsCategoryPickerOpen(false)}
       >
-        <Pressable style={styles.backdrop} onPress={() => setIsCategoryPickerOpen(false)} />
-        <View style={styles.pickerSheet}>
-          <View style={styles.pickerTitleRow}>
-            <Text style={styles.pickerTitle}>Select category</Text>
-          </View>
-          <TextInput
-            value={categoryPickerQuery}
-            onChangeText={setCategoryPickerQuery}
-            placeholder="Search category…"
-            placeholderTextColor="#6B6B6B"
-            style={styles.pickerSearchInput}
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-          <ScrollView contentContainerStyle={{ gap: 10 }}>
-            <Pressable
-              onPress={() => {
-                setCategoryId(null);
-                setIsCategoryPickerOpen(false);
-              }}
-              style={({ pressed }) => [styles.pickerRow, pressed && styles.pickerRowPressed]}
-            >
-              <Text style={styles.pickerRowText}>None</Text>
-            </Pressable>
-            {canCreateCategoryFromQuery ? (
-              <Pressable
-                onPress={async () => {
-                  if (isCategorySaving) return;
-                  const trimmed = categoryPickerQuery.trim();
-                  if (!trimmed) return;
-                  setIsCategorySaving(true);
-                  try {
-                    const created = await createCategory({ name: trimmed });
-                    await refreshCategories(created.id);
-                    setCategoryPickerQuery("");
-                    setIsCategoryPickerOpen(false);
-                  } catch (err: any) {
-                    const message =
-                      err?.response?.data?.detail ??
-                      err?.response?.data?.message ??
-                      err?.message ??
-                      "Failed to create category.";
-                    Alert.alert("Error", String(message));
-                  } finally {
-                    setIsCategorySaving(false);
-                  }
-                }}
-                disabled={isCategorySaving}
-                style={({ pressed }) => [
-                  styles.pickerRow,
-                  styles.pickerCreateRow,
-                  (pressed || isCategorySaving) && styles.pickerRowPressed,
-                ]}
-              >
-                <Feather name="plus" size={14} color="#0B0B0B" />
-                <Text style={styles.pickerRowText}>
-                  {isCategorySaving ? "Adding..." : `Add "${categoryPickerQuery.trim()}"`}
-                </Text>
+        <View style={styles.pickerModalRoot}>
+          <SafeAreaView style={styles.pickerSheetFull} edges={["top", "bottom", "left", "right"]}>
+            <View style={styles.pickerSheetHeader}>
+              <Text style={styles.pickerTitleInHeader} numberOfLines={1}>
+                Select category
+              </Text>
+              <Pressable onPress={() => setIsCategoryPickerOpen(false)} hitSlop={8}>
+                <Text style={styles.closeBtnText}>Close</Text>
               </Pressable>
-            ) : null}
-            {categoriesFiltered.map((c) => (
+            </View>
+            <TextInput
+              value={categoryPickerQuery}
+              onChangeText={setCategoryPickerQuery}
+              placeholder="Search category…"
+              placeholderTextColor="#6B6B6B"
+              style={[styles.pickerSearchInput, styles.pickerSearchInFull]}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <ScrollView
+              style={styles.pickerListScroll}
+              contentContainerStyle={styles.pickerListContent}
+              keyboardShouldPersistTaps="handled"
+            >
               <Pressable
-                key={String(c.id)}
                 onPress={() => {
-                  setCategoryId(c.id);
+                  setCategoryId(null);
                   setIsCategoryPickerOpen(false);
                 }}
                 style={({ pressed }) => [styles.pickerRow, pressed && styles.pickerRowPressed]}
               >
-                <Text style={styles.pickerRowText}>{c.name}</Text>
+                <Text style={styles.pickerRowText}>None</Text>
               </Pressable>
-            ))}
-          </ScrollView>
+              {canCreateCategoryFromQuery ? (
+                <Pressable
+                  onPress={async () => {
+                    if (isCategorySaving) return;
+                    const trimmed = categoryPickerQuery.trim();
+                    if (!trimmed) return;
+                    setIsCategorySaving(true);
+                    try {
+                      const created = await createCategory({ name: trimmed });
+                      await refreshCategories(created.id);
+                      setCategoryPickerQuery("");
+                      setIsCategoryPickerOpen(false);
+                    } catch (err: any) {
+                      const message =
+                        err?.response?.data?.detail ??
+                        err?.response?.data?.message ??
+                        err?.message ??
+                        "Failed to create category.";
+                      Alert.alert("Error", String(message));
+                    } finally {
+                      setIsCategorySaving(false);
+                    }
+                  }}
+                  disabled={isCategorySaving}
+                  style={({ pressed }) => [
+                    styles.pickerRow,
+                    styles.pickerCreateRow,
+                    (pressed || isCategorySaving) && styles.pickerRowPressed,
+                  ]}
+                >
+                  <Feather name="plus" size={14} color="#0B0B0B" />
+                  <Text style={styles.pickerRowText}>
+                    {isCategorySaving ? "Adding..." : `Add "${categoryPickerQuery.trim()}"`}
+                  </Text>
+                </Pressable>
+              ) : null}
+              {categoriesFiltered.map((c) => (
+                <Pressable
+                  key={String(c.id)}
+                  onPress={() => {
+                    setCategoryId(c.id);
+                    setIsCategoryPickerOpen(false);
+                  }}
+                  style={({ pressed }) => [styles.pickerRow, pressed && styles.pickerRowPressed]}
+                >
+                  <Text style={styles.pickerRowText}>{c.name}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          </SafeAreaView>
         </View>
       </Modal>
     </>

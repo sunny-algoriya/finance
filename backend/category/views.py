@@ -1,3 +1,4 @@
+from django.db.models.functions import Lower
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.filters import SearchFilter
 from rest_framework.permissions import IsAuthenticated
@@ -16,7 +17,7 @@ class CategoryViewSet(BaseModelViewSet):
     search_fields = ["name"]
 
     def get_queryset(self):
-        return Category.objects.filter(user=self.request.user).order_by("name")
+        return Category.objects.filter(user=self.request.user).order_by(Lower("name"), "name")
 
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)

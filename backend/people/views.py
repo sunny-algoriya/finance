@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 from django.db.models import Count, Sum
+from django.db.models.functions import Lower
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
@@ -62,7 +63,7 @@ class PersonViewSet(BaseModelViewSet):
     search_fields = ["name"]
 
     def get_queryset(self):
-        return Person.objects.filter(user=self.request.user)
+        return Person.objects.filter(user=self.request.user).order_by(Lower("name"), "name")
 
     @action(detail=True, methods=["get"], url_path="ledger")
     def ledger(self, request, pk=None):
