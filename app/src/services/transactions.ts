@@ -18,6 +18,7 @@ export type Transaction = {
   person: number | string | null;
   category: number | string | null;
   txn_date: string; // YYYY-MM-DD
+  remark: string | null;
   description: string;
   ref_no_or_cheque_no: string | null;
   amount: string; // keep as string for exactness
@@ -31,6 +32,7 @@ export type TransactionCreateInput = {
   person?: Transaction["person"];
   category?: Transaction["category"];
   txn_date: string;
+  remark?: string | null;
   description: string;
   ref_no_or_cheque_no?: string | null;
   amount: string | number;
@@ -76,6 +78,11 @@ function normalizeTxn(raw: any): Transaction {
     null;
 
   const txn_date = raw?.txn_date ?? raw?.txnDate ?? raw?.date;
+  const remarkRaw = raw?.remark;
+  const remark =
+    remarkRaw === undefined || remarkRaw === null || remarkRaw === ""
+      ? null
+      : String(remarkRaw);
   const description = raw?.description ?? "";
   const ref_no_or_cheque_no =
     raw?.ref_no_or_cheque_no ??
@@ -102,6 +109,7 @@ function normalizeTxn(raw: any): Transaction {
     person,
     category,
     txn_date,
+    remark,
     description: String(description),
     ref_no_or_cheque_no: ref_no_or_cheque_no ? String(ref_no_or_cheque_no) : null,
     amount,
@@ -137,6 +145,8 @@ export type TransactionListParams = {
   show?: "hidden" | "all" | null;
   /** Same as `show=all` when true (backend alias). */
   include_hidden?: boolean;
+  /** Omit or `all`: no filter. `linked`: person assigned. `unlinked`: no person. */
+  ispersonthere?: "linked" | "unlinked" | "all" | null;
   page?: number;
   search?: string;
 };
@@ -169,6 +179,7 @@ function buildTransactionFilterQuery(
     txn_type,
     show,
     include_hidden,
+    ispersonthere,
     page = 1,
     search,
   } = params;
@@ -198,6 +209,10 @@ function buildTransactionFilterQuery(
     normalized.show = "hidden";
   } else if (show === "all" || include_hidden === true) {
     normalized.show = "all";
+  }
+
+  if (ispersonthere === "linked" || ispersonthere === "unlinked") {
+    normalized.ispersonthere = ispersonthere;
   }
 
   const hasParams = Object.values(normalized).some((v) => v !== undefined);
@@ -247,6 +262,7 @@ export async function createTransaction(
     txn_type: normalizedTxnType,
     person: input.person ?? null,
     category: input.category ?? null,
+    remark: input.remark === undefined ? null : input.remark,
     ref_no_or_cheque_no: input.ref_no_or_cheque_no ?? null,
   };
   const res = await api.post("/transactions/", payload);
@@ -425,6 +441,7 @@ export type SelfTransferNestedTxn = {
   person?: number | string | null;
   category?: number | string | null;
   txn_date: string;
+  remark?: string | null;
   description: string;
   amount: string;
   type: "credit" | "debit";
@@ -460,6 +477,10 @@ function normalizeSelfTransferNested(raw: any): SelfTransferNestedTxn {
     category:
       category === null || category === undefined || category === "" ? null : category,
     txn_date: String(raw?.txn_date ?? ""),
+    remark:
+      raw?.remark === undefined || raw?.remark === null || raw?.remark === ""
+        ? null
+        : String(raw.remark),
     description: String(raw?.description ?? ""),
     amount: toMoneyString(raw?.amount),
     type: raw?.type === "debit" ? "debit" : "credit",

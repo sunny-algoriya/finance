@@ -40,6 +40,7 @@ class TransactionSerializer(FlexFieldsModelSerializer):
             "person",
             "category",
             "txn_date",
+            "remark",
             "description",
             "credit",
             "debit",

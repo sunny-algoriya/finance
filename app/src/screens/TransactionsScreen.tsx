@@ -2,8 +2,6 @@ import React from "react";
 import {
   ActivityIndicator,
   Alert,
-  Keyboard,
-  KeyboardAvoidingView,
   Linking,
   Modal,
   Platform,
@@ -18,12 +16,8 @@ import { Feather } from "@expo/vector-icons";
 import * as DocumentPicker from "expo-document-picker";
 
 import { listAccounts, type Account } from "../services/accounts";
-import {
-  createCategory,
-  listCategories,
-  type Category,
-} from "../services/categories";
-import { createPeople, listPeoples, type People } from "../services/peoples";
+import { listCategories, type Category } from "../services/categories";
+import { listPeoples, type People } from "../services/peoples";
 import {
   formatFullDateWithWeekday,
   formatShortWeekdayDay,
@@ -33,7 +27,6 @@ import AppTabScreen from "../components/AppTabScreen";
 import {
   bulkDeleteTransactions,
   bulkUpdateTransactions,
-  createTransaction,
   deleteTransaction,
   listTransactionsByYearMonth,
   TRANSACTION_TXN_TYPES,
@@ -45,6 +38,13 @@ import {
   type Transaction,
   type TransactionUpload,
 } from "../services/transactions";
+import {
+  TransactionBulkEditModal,
+  TransactionBulkSelectionBar,
+  TransactionFormModal,
+  type BulkUpdatePatch,
+  type TransactionEditState,
+} from "../components/transactions";
 
 /** RN may define `window` without `location`; only use URL APIs on web. */
 const IS_WEB = Platform.OS === "web";
@@ -52,9 +52,29 @@ const IS_WEB = Platform.OS === "web";
 /** Must match backend `DefaultPagination.page_size`. */
 const TXN_PAGE_SIZE = 50;
 
-type EditState = { mode: "create" } | { mode: "edit"; txn: Transaction };
-
 type TxnVisibilityFilter = "visible" | "hidden" | "all";
+
+type TxnPersonLinkedFilter = "all" | "linked" | "unlinked";
+
+function parseTxnPersonLinkedFromSearch(search: string): TxnPersonLinkedFilter {
+  try {
+    const qp = new URLSearchParams(search);
+    const v = (qp.get("ispersonthere") || "").trim().toLowerCase();
+    if (!v) return "unlinked";
+    if (v === "linked" || v === "true" || v === "1" || v === "yes") {
+      return "linked";
+    }
+    if (v === "unlinked" || v === "false" || v === "0" || v === "no") {
+      return "unlinked";
+    }
+    if (v === "all" || v === "both" || v === "any") {
+      return "all";
+    }
+    return "unlinked";
+  } catch {
+    return "unlinked";
+  }
+}
 
 function parseTxnVisibilityFromSearch(search: string): TxnVisibilityFilter {
   try {
@@ -68,13 +88,6 @@ function parseTxnVisibilityFromSearch(search: string): TxnVisibilityFilter {
   } catch {
     return "visible";
   }
-}
-
-function formatMoneyInput(raw: string): string {
-  const cleaned = raw.replace(/[^\d.]/g, "");
-  const parts = cleaned.split(".");
-  if (parts.length <= 1) return cleaned;
-  return `${parts[0]}.${parts.slice(1).join("").slice(0, 2)}`;
 }
 
 function normalizeAmountFilterInput(raw: string): string {
@@ -191,10 +204,9 @@ export default function TransactionsScreen() {
   const [isRefreshing, setIsRefreshing] = React.useState(false);
 
   const [isModalOpen, setIsModalOpen] = React.useState(false);
-  const [editState, setEditState] = React.useState<EditState>({
+  const [editState, setEditState] = React.useState<TransactionEditState>({
     mode: "create",
   });
-  const [isSaving, setIsSaving] = React.useState(false);
   const [hidingTxnId, setHidingTxnId] = React.useState<string | null>(null);
   const [listPersonPickerTxn, setListPersonPickerTxn] =
     React.useState<Transaction | null>(null);
@@ -202,30 +214,10 @@ export default function TransactionsScreen() {
     string | null
   >(null);
 
-  const [accountId, setAccountId] = React.useState<string | number | null>(
-    null,
-  );
-  const [personId, setPersonId] = React.useState<string | number | null>(null);
-  const [categoryId, setCategoryId] = React.useState<string | number | null>(
-    null,
-  );
-  const [txnDate, setTxnDate] = React.useState(todayISO());
-  const [description, setDescription] = React.useState("");
-  const [amount, setAmount] = React.useState("0.00");
-  const [txnType, setTxnType] = React.useState<"credit" | "debit">("credit");
-  const [txnKind, setTxnKind] = React.useState<TransactionTxnType>("expense");
-
-  const [isAccountPickerOpen, setIsAccountPickerOpen] = React.useState(false);
-  const [isPersonPickerOpen, setIsPersonPickerOpen] = React.useState(false);
-  const [isCategoryPickerOpen, setIsCategoryPickerOpen] = React.useState(false);
-  const [isAddCategoryOpen, setIsAddCategoryOpen] = React.useState(false);
-  const [newCategoryName, setNewCategoryName] = React.useState("");
-  const [isCategorySaving, setIsCategorySaving] = React.useState(false);
-  const [personPickerQuery, setPersonPickerQuery] = React.useState("");
+  const [isUploadAccountPickerOpen, setIsUploadAccountPickerOpen] =
+    React.useState(false);
   const [filterPersonPickerQuery, setFilterPersonPickerQuery] =
     React.useState("");
-  const [categoryPickerQuery, setCategoryPickerQuery] = React.useState("");
-  const [isPersonSaving, setIsPersonSaving] = React.useState(false);
   const [isUploadOpen, setIsUploadOpen] = React.useState(false);
   const [uploadAccountId, setUploadAccountId] = React.useState<
     string | number | null
@@ -258,14 +250,6 @@ export default function TransactionsScreen() {
     React.useState(false);
   const [selectedTxnIds, setSelectedTxnIds] = React.useState<string[]>([]);
   const [isBulkEditOpen, setIsBulkEditOpen] = React.useState(false);
-  const [bulkPersonId, setBulkPersonId] = React.useState<string | null>(null);
-  const [bulkCategoryId, setBulkCategoryId] = React.useState<string | null>(
-    null,
-  );
-  const [bulkTxnType, setBulkTxnType] =
-    React.useState<TransactionTxnType | null>(null);
-  const [bulkPersonQuery, setBulkPersonQuery] = React.useState("");
-  const [bulkCategoryQuery, setBulkCategoryQuery] = React.useState("");
   const [isBulkSaving, setIsBulkSaving] = React.useState(false);
 
   const [isFilterSidebarOpen, setIsFilterSidebarOpen] = React.useState(false);
@@ -295,6 +279,15 @@ export default function TransactionsScreen() {
         return parseTxnVisibilityFromSearch(window.location.search);
       } catch {
         return "visible";
+      }
+    });
+  const [filterPersonLinked, setFilterPersonLinked] =
+    React.useState<TxnPersonLinkedFilter>(() => {
+      if (!IS_WEB) return "unlinked";
+      try {
+        return parseTxnPersonLinkedFromSearch(window.location.search);
+      } catch {
+        return "unlinked";
       }
     });
   const [isFilterAccountPickerOpen, setIsFilterAccountPickerOpen] =
@@ -397,6 +390,7 @@ export default function TransactionsScreen() {
         filterTxnType ?? "",
         filterTxnKind ?? "",
         filterVisibility,
+        filterPersonLinked,
         txnSearchDebounced,
         dateFilterMode,
         customStartDate ?? "",
@@ -412,6 +406,7 @@ export default function TransactionsScreen() {
       filterTxnType,
       filterTxnKind,
       filterVisibility,
+      filterPersonLinked,
       txnSearchDebounced,
       dateFilterMode,
       customStartDate,
@@ -444,63 +439,11 @@ export default function TransactionsScreen() {
     total_debit: string;
   } | null>(null);
 
-  const peopleFilteredForTxn = React.useMemo(() => {
-    const q = personPickerQuery.trim().toLowerCase();
-    if (!q) return people;
-    return people.filter((p) => p.name.toLowerCase().includes(q));
-  }, [people, personPickerQuery]);
-
-  const canCreatePersonFromQuery = React.useMemo(() => {
-    const q = personPickerQuery.trim().toLowerCase();
-    if (!q) return false;
-    return !people.some((p) => p.name.trim().toLowerCase() === q);
-  }, [people, personPickerQuery]);
-
   const peopleFilteredForSidebar = React.useMemo(() => {
     const q = filterPersonPickerQuery.trim().toLowerCase();
     if (!q) return people;
     return people.filter((p) => p.name.toLowerCase().includes(q));
   }, [people, filterPersonPickerQuery]);
-
-  const categoriesFiltered = React.useMemo(() => {
-    const q = categoryPickerQuery.trim().toLowerCase();
-    if (!q) return categories;
-    return categories.filter((c) => c.name.toLowerCase().includes(q));
-  }, [categories, categoryPickerQuery]);
-
-  const peopleFilteredForBulk = React.useMemo(() => {
-    const q = bulkPersonQuery.trim().toLowerCase();
-    if (!q) return people;
-    return people.filter((p) => p.name.toLowerCase().includes(q));
-  }, [people, bulkPersonQuery]);
-
-  const categoriesFilteredForBulk = React.useMemo(() => {
-    const q = bulkCategoryQuery.trim().toLowerCase();
-    if (!q) return categories;
-    return categories.filter((c) => c.name.toLowerCase().includes(q));
-  }, [categories, bulkCategoryQuery]);
-
-  const canCreateCategoryFromQuery = React.useMemo(() => {
-    const q = categoryPickerQuery.trim().toLowerCase();
-    if (!q) return false;
-    return !categories.some((c) => c.name.trim().toLowerCase() === q);
-  }, [categories, categoryPickerQuery]);
-
-  async function refreshCategories(selectId?: string | number) {
-    const catRes = await listCategories();
-    setCategories(catRes);
-    if (selectId !== undefined && selectId !== null) {
-      setCategoryId(selectId);
-    }
-  }
-
-  async function refreshPeople(selectId?: string | number) {
-    const pplRes = await listPeoples();
-    setPeople(pplRes);
-    if (selectId !== undefined && selectId !== null) {
-      setPersonId(selectId);
-    }
-  }
 
   const monthOptions = React.useMemo(
     () => [
@@ -583,6 +526,9 @@ export default function TransactionsScreen() {
             : filterVisibility === "all"
               ? { show: "all" as const }
               : {}),
+          ...(filterPersonLinked !== "all"
+            ? { ispersonthere: filterPersonLinked }
+            : {}),
           page,
           ...(txnSearchDebounced ? { search: txnSearchDebounced } : {}),
         });
@@ -615,6 +561,7 @@ export default function TransactionsScreen() {
       filterTxnType,
       filterTxnKind,
       filterVisibility,
+      filterPersonLinked,
       txnSearchDebounced,
       dateFilterMode,
       customStartDate,
@@ -765,33 +712,11 @@ export default function TransactionsScreen() {
 
   function openCreate() {
     setEditState({ mode: "create" });
-    setAccountId(accounts[0]?.id ?? null);
-    setPersonId(null);
-    setCategoryId(null);
-    setTxnDate(todayISO());
-    setDescription("");
-    setAmount("0.00");
-    setTxnType("credit");
-    setTxnKind("expense");
     setIsModalOpen(true);
-  }
-
-  function closeTxnModal() {
-    if (isSaving) return;
-    Keyboard.dismiss();
-    setIsModalOpen(false);
   }
 
   function openEdit(txn: Transaction) {
     setEditState({ mode: "edit", txn });
-    setAccountId(txn.account);
-    setPersonId(txn.person ?? null);
-    setCategoryId(txn.category ?? null);
-    setTxnDate(txn.txn_date);
-    setDescription(txn.description ?? "");
-    setAmount(txn.amount ?? "0.00");
-    setTxnType(txn.type ?? "credit");
-    setTxnKind(txn.txn_type ?? "expense");
     setIsModalOpen(true);
   }
 
@@ -852,62 +777,6 @@ export default function TransactionsScreen() {
       Alert.alert("Error", String(message));
     } finally {
       setListPersonPatchingId(null);
-    }
-  }
-
-  async function onSave() {
-    if (isSaving) return;
-    if (accountId === null || accountId === undefined || accountId === "") {
-      Alert.alert("Validation", "Account is required.");
-      return;
-    }
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(txnDate.trim())) {
-      Alert.alert("Validation", "Date must be YYYY-MM-DD.");
-      return;
-    }
-    if (!description.trim()) {
-      Alert.alert("Validation", "Description is required.");
-      return;
-    }
-
-    setIsSaving(true);
-    try {
-      if (editState.mode === "create") {
-        const created = await createTransaction({
-          account: accountId,
-          person: personId ?? null,
-          category: categoryId ?? null,
-          txn_date: txnDate.trim(),
-          description: description.trim(),
-          amount,
-          type: txnType,
-          txn_type: txnKind,
-        });
-        setTxns((prev) => [created, ...prev]);
-      } else {
-        const updated = await patchTransaction(editState.txn.id, {
-          account: accountId,
-          person: personId ?? null,
-          category: categoryId ?? null,
-          txn_date: txnDate.trim(),
-          description: description.trim(),
-          amount,
-          type: txnType,
-          txn_type: txnKind,
-        });
-        setTxns((prev) => prev.map((t) => (t.id === updated.id ? updated : t)));
-      }
-      Keyboard.dismiss();
-      setIsModalOpen(false);
-    } catch (err: any) {
-      const message =
-        err?.response?.data?.detail ??
-        err?.response?.data?.message ??
-        err?.message ??
-        "Failed to save transaction.";
-      Alert.alert("Error", String(message));
-    } finally {
-      setIsSaving(false);
     }
   }
 
@@ -1023,15 +892,15 @@ export default function TransactionsScreen() {
     );
   }
 
-  async function onApplyBulkUpdate() {
+  async function onApplyBulkUpdate(patch: BulkUpdatePatch) {
     if (selectedTxnIds.length === 0 || isBulkSaving) return;
     setIsBulkSaving(true);
     try {
       await bulkUpdateTransactions({
         ids: selectedTxnIds,
-        person: bulkPersonId ?? null,
-        category: bulkCategoryId ?? null,
-        txn_type: bulkTxnType ?? undefined,
+        person: patch.person,
+        category: patch.category,
+        txn_type: patch.txn_type,
       });
       setIsBulkEditOpen(false);
       setSelectedTxnIds([]);
@@ -1052,13 +921,6 @@ export default function TransactionsScreen() {
     const visible = new Set(allVisibleTxnIds);
     setSelectedTxnIds((prev) => prev.filter((id) => visible.has(id)));
   }, [allVisibleTxnIds]);
-
-  const accountLabel =
-    accountId != null ? accountById.get(String(accountId))?.name : undefined;
-  const personLabel =
-    personId != null ? peopleById.get(String(personId))?.name : undefined;
-  const categoryLabel =
-    categoryId != null ? categoryById.get(String(categoryId))?.name : undefined;
 
   const monthShortLabel = React.useMemo(() => {
     const m = Number.parseInt(selectedMonth, 10);
@@ -1217,6 +1079,11 @@ export default function TransactionsScreen() {
                   IS_WEB
                     ? parseTxnVisibilityFromSearch(window.location.search)
                     : "visible",
+                );
+                setFilterPersonLinked(
+                  IS_WEB
+                    ? parseTxnPersonLinkedFromSearch(window.location.search)
+                    : filterPersonLinked,
                 );
                 setIsFilterSidebarOpen(true);
               }}
@@ -1860,6 +1727,95 @@ export default function TransactionsScreen() {
             </View>
 
             <View style={{ gap: 6 }}>
+              <Text style={styles.label}>Person linked</Text>
+              <View style={styles.sidebarTypeRow}>
+                <Pressable
+                  onPress={() => {
+                    setFilterPersonLinked("all");
+                    if (IS_WEB) {
+                      const url = new URL(window.location.href);
+                      url.searchParams.set("ispersonthere", "all");
+                      window.history.replaceState(null, "", url.toString());
+                    }
+                  }}
+                  style={({ pressed }) => [
+                    styles.sidebarTypePill,
+                    filterPersonLinked === "all" &&
+                      styles.sidebarTypePillActiveNeutral,
+                    pressed &&
+                      filterPersonLinked !== "all" &&
+                      styles.typePillPressed,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.sidebarTypePillText,
+                      filterPersonLinked === "all" && styles.typePillTextActive,
+                    ]}
+                  >
+                    All
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => {
+                    setFilterPersonLinked("linked");
+                    if (IS_WEB) {
+                      const url = new URL(window.location.href);
+                      url.searchParams.set("ispersonthere", "linked");
+                      window.history.replaceState(null, "", url.toString());
+                    }
+                  }}
+                  style={({ pressed }) => [
+                    styles.sidebarTypePill,
+                    filterPersonLinked === "linked" &&
+                      styles.sidebarTypePillActiveNeutral,
+                    pressed &&
+                      filterPersonLinked !== "linked" &&
+                      styles.typePillPressed,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.sidebarTypePillText,
+                      filterPersonLinked === "linked" &&
+                        styles.typePillTextActive,
+                    ]}
+                  >
+                    Linked
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => {
+                    setFilterPersonLinked("unlinked");
+                    if (IS_WEB) {
+                      const url = new URL(window.location.href);
+                      url.searchParams.delete("ispersonthere");
+                      window.history.replaceState(null, "", url.toString());
+                    }
+                  }}
+                  style={({ pressed }) => [
+                    styles.sidebarTypePill,
+                    filterPersonLinked === "unlinked" &&
+                      styles.sidebarTypePillActiveNeutral,
+                    pressed &&
+                      filterPersonLinked !== "unlinked" &&
+                      styles.typePillPressed,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.sidebarTypePillText,
+                      filterPersonLinked === "unlinked" &&
+                        styles.typePillTextActive,
+                    ]}
+                  >
+                    Unlinked
+                  </Text>
+                </Pressable>
+              </View>
+            </View>
+
+            <View style={{ gap: 6 }}>
               <Text style={styles.label}>Amount range</Text>
               <View style={styles.sidebarAmountRow}>
                 <TextInput
@@ -1897,6 +1853,7 @@ export default function TransactionsScreen() {
                 setFilterTxnType(null);
                 setFilterTxnKind(null);
                 setFilterVisibility("visible");
+                setFilterPersonLinked("unlinked");
                 setFilterAmountMinInput("");
                 setFilterAmountMaxInput("");
                 if (IS_WEB) {
@@ -1907,6 +1864,7 @@ export default function TransactionsScreen() {
                   url.searchParams.delete("txn_type");
                   url.searchParams.delete("show");
                   url.searchParams.delete("include_hidden");
+                  url.searchParams.delete("ispersonthere");
                   window.history.replaceState(null, "", url.toString());
                 }
               }}
@@ -2140,49 +2098,13 @@ export default function TransactionsScreen() {
           ) : null}
         </View>
       )}
-      {!isLoading && selectedTxnIds.length > 0 ? (
-        <View style={styles.bulkBar}>
-          <Text style={styles.bulkBarText}>
-            {selectedTxnIds.length} selected
-          </Text>
-          <Pressable
-            onPress={() => {
-              setBulkPersonId(null);
-              setBulkCategoryId(null);
-              setBulkTxnType(null);
-              setBulkPersonQuery("");
-              setBulkCategoryQuery("");
-              setIsBulkEditOpen(true);
-            }}
-            style={({ pressed }) => [
-              styles.bulkActionBtn,
-              pressed && styles.bulkActionBtnPressed,
-            ]}
-          >
-            <Text style={styles.bulkActionBtnText}>Bulk update</Text>
-          </Pressable>
-          <Pressable
-            onPress={() => void onBulkDeleteSelected()}
-            disabled={isBulkSaving}
-            style={({ pressed }) => [
-              styles.bulkDangerBtn,
-              pressed && styles.bulkDangerBtnPressed,
-              isBulkSaving && { opacity: 0.6 },
-            ]}
-          >
-            <Text style={styles.bulkDangerBtnText}>Bulk delete</Text>
-          </Pressable>
-          <Pressable
-            onPress={() => setSelectedTxnIds([])}
-            style={({ pressed }) => [
-              styles.bulkActionBtn,
-              pressed && styles.bulkActionBtnPressed,
-            ]}
-          >
-            <Text style={styles.bulkActionBtnText}>Clear</Text>
-          </Pressable>
-        </View>
-      ) : null}
+      <TransactionBulkSelectionBar
+        selectedCount={!isLoading ? selectedTxnIds.length : 0}
+        onBulkUpdate={() => setIsBulkEditOpen(true)}
+        onBulkDelete={() => void onBulkDeleteSelected()}
+        onClear={() => setSelectedTxnIds([])}
+        isBulkDeleting={isBulkSaving}
+      />
 
       {isLoading ? (
         <View style={styles.center}>
@@ -2319,6 +2241,11 @@ export default function TransactionsScreen() {
                         accessibilityRole="button"
                         accessibilityLabel="Edit transaction"
                       >
+                        {t.remark ? (
+                          <Text style={[styles.cellRemark]} numberOfLines={2}>
+                            {t.remark}
+                          </Text>
+                        ) : null}
                         <Text
                           style={[
                             styles.cellDesc,
@@ -2343,7 +2270,12 @@ export default function TransactionsScreen() {
                         </Text>
                         <View style={styles.cellTypeRow}>
                           <View style={[styles.cellTypePill, txnTypePill.wrap]}>
-                            <Text style={[styles.cellTypePillText, txnTypePill.text]}>
+                            <Text
+                              style={[
+                                styles.cellTypePillText,
+                                txnTypePill.text,
+                              ]}
+                            >
                               {txnTypeLabel(t.txn_type)}
                             </Text>
                           </View>
@@ -2408,407 +2340,31 @@ export default function TransactionsScreen() {
         </View>
       </Modal>
 
-      <Modal
+      <TransactionBulkEditModal
         visible={isBulkEditOpen}
-        animationType="fade"
-        transparent
         onRequestClose={() => (isBulkSaving ? null : setIsBulkEditOpen(false))}
-      >
-        <Pressable
-          style={styles.backdrop}
-          onPress={() => (isBulkSaving ? null : setIsBulkEditOpen(false))}
-        />
-        <View style={styles.pickerSheet}>
-          <Text style={styles.pickerTitle}>Bulk update selected</Text>
-          <View style={{ gap: 10 }}>
-            <View style={{ gap: 6 }}>
-              <Text style={styles.label}>Person</Text>
-              <TextInput
-                value={bulkPersonQuery}
-                onChangeText={setBulkPersonQuery}
-                placeholder="Search person..."
-                placeholderTextColor="#9A9A9A"
-                autoCapitalize="none"
-                autoCorrect={false}
-                style={styles.pickerSearchInput}
-              />
-              <View style={styles.bulkChipWrap}>
-                <Pressable
-                  onPress={() => setBulkPersonId(null)}
-                  style={({ pressed }) => [
-                    styles.bulkChipBtn,
-                    pressed && styles.pickerRowPressed,
-                    bulkPersonId === null && styles.pickerRowActive,
-                  ]}
-                >
-                  <Text style={styles.bulkChipText}>None</Text>
-                </Pressable>
-                {peopleFilteredForBulk.map((p) => (
-                  <Pressable
-                    key={`bulk-person-${p.id}`}
-                    onPress={() => setBulkPersonId(String(p.id))}
-                    style={({ pressed }) => [
-                      styles.bulkChipBtn,
-                      pressed && styles.pickerRowPressed,
-                      bulkPersonId === String(p.id) && styles.pickerRowActive,
-                    ]}
-                  >
-                    <Text style={styles.bulkChipText}>{p.name}</Text>
-                  </Pressable>
-                ))}
-              </View>
-            </View>
-            <View style={{ gap: 6 }}>
-              <Text style={styles.label}>Category</Text>
-              <TextInput
-                value={bulkCategoryQuery}
-                onChangeText={setBulkCategoryQuery}
-                placeholder="Search category..."
-                placeholderTextColor="#9A9A9A"
-                autoCapitalize="none"
-                autoCorrect={false}
-                style={styles.pickerSearchInput}
-              />
-              <View style={styles.bulkChipWrap}>
-                <Pressable
-                  onPress={() => setBulkCategoryId(null)}
-                  style={({ pressed }) => [
-                    styles.bulkChipBtn,
-                    pressed && styles.pickerRowPressed,
-                    bulkCategoryId === null && styles.pickerRowActive,
-                  ]}
-                >
-                  <Text style={styles.bulkChipText}>None</Text>
-                </Pressable>
-                {categoriesFilteredForBulk.map((c) => (
-                  <Pressable
-                    key={`bulk-category-${c.id}`}
-                    onPress={() => setBulkCategoryId(String(c.id))}
-                    style={({ pressed }) => [
-                      styles.bulkChipBtn,
-                      pressed && styles.pickerRowPressed,
-                      bulkCategoryId === String(c.id) && styles.pickerRowActive,
-                    ]}
-                  >
-                    <Text style={styles.bulkChipText}>{c.name}</Text>
-                  </Pressable>
-                ))}
-              </View>
-            </View>
-            <View style={{ gap: 6 }}>
-              <Text style={styles.label}>Type</Text>
-              <View style={styles.bulkChipWrap}>
-                <Pressable
-                  onPress={() => setBulkTxnType(null)}
-                  style={({ pressed }) => [
-                    styles.bulkChipBtn,
-                    pressed && styles.pickerRowPressed,
-                    bulkTxnType === null && styles.pickerRowActive,
-                  ]}
-                >
-                  <Text style={styles.bulkChipText}>Keep current</Text>
-                </Pressable>
-                {TRANSACTION_TXN_TYPES.map((opt) => (
-                  <Pressable
-                    key={`bulk-type-${opt}`}
-                    onPress={() => setBulkTxnType(opt)}
-                    style={({ pressed }) => [
-                      styles.bulkChipBtn,
-                      pressed && styles.pickerRowPressed,
-                      bulkTxnType === opt && styles.pickerRowActive,
-                    ]}
-                  >
-                    <Text style={styles.bulkChipText}>{txnTypeLabel(opt)}</Text>
-                  </Pressable>
-                ))}
-              </View>
-            </View>
-            <View style={{ flexDirection: "row", gap: 8 }}>
-              <Pressable
-                onPress={() => setIsBulkEditOpen(false)}
-                disabled={isBulkSaving}
-                style={({ pressed }) => [
-                  styles.secondaryResetBtn,
-                  pressed && styles.secondaryResetBtnPressed,
-                  { flex: 1 },
-                ]}
-              >
-                <Text style={styles.secondaryResetText}>Cancel</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => void onApplyBulkUpdate()}
-                disabled={isBulkSaving}
-                style={({ pressed }) => [
-                  styles.saveBtn,
-                  (pressed || isBulkSaving) && styles.saveBtnPressed,
-                  { flex: 1 },
-                ]}
-              >
-                <Text style={styles.saveBtnText}>
-                  {isBulkSaving ? "Updating..." : "Apply"}
-                </Text>
-              </Pressable>
-            </View>
-          </View>
-        </View>
-      </Modal>
+        people={people}
+        categories={categories}
+        isSaving={isBulkSaving}
+        onApply={(patch) => void onApplyBulkUpdate(patch)}
+      />
 
-      <Modal
+      <TransactionFormModal
         visible={isModalOpen}
-        animationType="slide"
-        transparent
-        onRequestClose={() => {
-          if (isSaving) return;
-          closeTxnModal();
+        onRequestClose={() => setIsModalOpen(false)}
+        editState={editState}
+        onSaved={({ mode, txn }) => {
+          if (mode === "create") setTxns((prev) => [txn, ...prev]);
+          else {
+            setTxns((prev) =>
+              prev.map((t) => (String(t.id) === String(txn.id) ? txn : t)),
+            );
+          }
         }}
-      >
-        <KeyboardAvoidingView
-          style={styles.txnModalKeyboardRoot}
-          behavior={Platform.OS === "ios" ? "padding" : undefined}
-          enabled={Platform.OS === "ios"}
-          keyboardVerticalOffset={Platform.OS === "ios" ? 8 : 0}
-        >
-          <View style={styles.txnModalKeyboardInner}>
-            <Pressable
-              style={[
-                StyleSheet.absoluteFillObject,
-                styles.txnModalBackdropDim,
-              ]}
-              onPress={() => {
-                if (isSaving) return;
-                closeTxnModal();
-              }}
-            />
-            <View style={styles.sheet}>
-              <View style={styles.sheetHeader}>
-                <Text style={styles.sheetTitle}>
-                  {editState.mode === "create"
-                    ? "Add transaction"
-                    : "Edit transaction"}
-                </Text>
-                <Pressable
-                  onPress={closeTxnModal}
-                  disabled={isSaving}
-                  style={({ pressed }) => [
-                    styles.closeBtn,
-                    pressed && styles.closeBtnPressed,
-                    isSaving && { opacity: 0.6 },
-                  ]}
-                >
-                  <Text style={styles.closeBtnText}>Close</Text>
-                </Pressable>
-              </View>
-
-              <ScrollView
-                keyboardShouldPersistTaps="handled"
-                keyboardDismissMode={
-                  Platform.OS === "ios" ? "interactive" : "on-drag"
-                }
-                showsVerticalScrollIndicator
-                automaticallyAdjustKeyboardInsets={Platform.OS === "ios"}
-                contentContainerStyle={styles.txnModalScrollContent}
-              >
-                <View style={{ gap: 6 }}>
-                  <Text style={styles.label}>Account</Text>
-                  <Pressable
-                    onPress={() => setIsAccountPickerOpen(true)}
-                    style={({ pressed }) => [
-                      styles.pickerBtn,
-                      pressed && styles.pickerBtnPressed,
-                    ]}
-                  >
-                    <Text style={styles.pickerBtnText}>
-                      {accountLabel ?? "Select account"}
-                    </Text>
-                  </Pressable>
-                </View>
-
-                <View style={{ gap: 6 }}>
-                  <Text style={styles.label}>Person (optional)</Text>
-                  <Pressable
-                    onPress={() => setIsPersonPickerOpen(true)}
-                    style={({ pressed }) => [
-                      styles.pickerBtn,
-                      pressed && styles.pickerBtnPressed,
-                    ]}
-                  >
-                    <Text style={styles.pickerBtnText}>
-                      {personLabel ?? "None"}
-                    </Text>
-                  </Pressable>
-                </View>
-
-                <View style={{ gap: 6 }}>
-                  <Text style={styles.label}>Category (optional)</Text>
-                  <Pressable
-                    onPress={() => setIsCategoryPickerOpen(true)}
-                    style={({ pressed }) => [
-                      styles.pickerBtn,
-                      pressed && styles.pickerBtnPressed,
-                    ]}
-                  >
-                    <Text style={styles.pickerBtnText}>
-                      {categoryLabel ?? "None"}
-                    </Text>
-                  </Pressable>
-                </View>
-
-                <View style={{ gap: 6 }}>
-                  <Text style={styles.label}>Date</Text>
-                  <TextInput
-                    style={styles.input}
-                    value={txnDate}
-                    onChangeText={setTxnDate}
-                    placeholder="YYYY-MM-DD"
-                    placeholderTextColor="#6B6B6B"
-                    editable={!isSaving}
-                    autoCapitalize="none"
-                    autoCorrect={false}
-                  />
-                </View>
-
-                <View style={{ gap: 6 }}>
-                  <Text style={styles.label}>Description</Text>
-                  <TextInput
-                    style={[styles.input, styles.inputMultiline]}
-                    value={description}
-                    onChangeText={setDescription}
-                    placeholder="e.g. Lunch split"
-                    placeholderTextColor="#6B6B6B"
-                    editable={!isSaving}
-                    multiline
-                    textAlignVertical="top"
-                    scrollEnabled={false}
-                  />
-                </View>
-
-                <View style={styles.moneyRow}>
-                  <View style={{ flex: 1, gap: 6 }}>
-                    <Text style={styles.label}>Amount</Text>
-                    <TextInput
-                      style={styles.input}
-                      value={amount}
-                      onChangeText={(t) => setAmount(formatMoneyInput(t))}
-                      placeholder="0.00"
-                      placeholderTextColor="#6B6B6B"
-                      keyboardType="numeric"
-                      editable={!isSaving}
-                    />
-                  </View>
-                  <View style={{ flex: 1, gap: 6 }}>
-                    <Text style={styles.label}>Type</Text>
-                    <View style={{ flexDirection: "row", gap: 8 }}>
-                      <Pressable
-                        onPress={() => setTxnType("credit")}
-                        disabled={isSaving}
-                        style={({ pressed }) => [
-                          styles.typePill,
-                          txnType === "credit" && styles.typePillCreditActive,
-                          pressed &&
-                            txnType !== "credit" &&
-                            styles.typePillPressed,
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.typePillText,
-                            txnType === "credit" && styles.typePillTextActive,
-                          ]}
-                        >
-                          Credit
-                        </Text>
-                      </Pressable>
-                      <Pressable
-                        onPress={() => setTxnType("debit")}
-                        disabled={isSaving}
-                        style={({ pressed }) => [
-                          styles.typePill,
-                          txnType === "debit" && styles.typePillDebitActive,
-                          pressed &&
-                            txnType !== "debit" &&
-                            styles.typePillPressed,
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.typePillText,
-                            txnType === "debit" && styles.typePillTextActive,
-                          ]}
-                        >
-                          Debit
-                        </Text>
-                      </Pressable>
-                    </View>
-                  </View>
-                </View>
-
-                <View style={{ gap: 6 }}>
-                  <Text style={styles.label}>Transaction type</Text>
-                  <View style={styles.sidebarTxnTypeWrap}>
-                    {TRANSACTION_TXN_TYPES.map((opt) => (
-                      <Pressable
-                        key={opt}
-                        onPress={() => setTxnKind(opt)}
-                        disabled={isSaving}
-                        style={({ pressed }) => [
-                          styles.sidebarTxnTypePill,
-                          txnKind === opt &&
-                            styles.sidebarTypePillActiveNeutral,
-                          pressed && txnKind !== opt && styles.typePillPressed,
-                        ]}
-                      >
-                        <Text
-                          style={[
-                            styles.sidebarTxnTypePillText,
-                            txnKind === opt && styles.typePillTextActive,
-                          ]}
-                        >
-                          {txnTypeLabel(opt)}
-                        </Text>
-                      </Pressable>
-                    ))}
-                  </View>
-                </View>
-
-                <Pressable
-                  onPress={onSave}
-                  disabled={isSaving}
-                  style={({ pressed }) => [
-                    styles.saveBtn,
-                    (pressed || isSaving) && styles.saveBtnPressed,
-                  ]}
-                >
-                  <Text style={styles.saveBtnText}>
-                    {isSaving ? "Saving…" : "Save"}
-                  </Text>
-                </Pressable>
-
-                {editState.mode === "edit" ? (
-                  <Pressable
-                    onPress={() =>
-                      onDelete(editState.txn, {
-                        confirm: true,
-                        afterDelete: () => closeTxnModal(),
-                      })
-                    }
-                    disabled={isSaving}
-                    style={({ pressed }) => [
-                      styles.deleteBtn,
-                      pressed && styles.deleteBtnPressed,
-                      isSaving && { opacity: 0.65 },
-                    ]}
-                  >
-                    <View style={styles.deleteBtnRow}>
-                      <Feather name="trash-2" size={16} color="#FFFFFF" />
-                      <Text style={styles.deleteBtnText}>Delete</Text>
-                    </View>
-                  </Pressable>
-                ) : null}
-              </ScrollView>
-            </View>
-          </View>
-        </KeyboardAvoidingView>
-      </Modal>
+        onDeleted={(id) => {
+          setTxns((prev) => prev.filter((t) => String(t.id) !== String(id)));
+        }}
+      />
 
       <Modal
         visible={isUploadOpen}
@@ -2840,7 +2396,7 @@ export default function TransactionsScreen() {
             <View style={{ gap: 6 }}>
               <Text style={styles.label}>Account</Text>
               <Pressable
-                onPress={() => setIsAccountPickerOpen(true)}
+                onPress={() => setIsUploadAccountPickerOpen(true)}
                 disabled={isUploading}
                 style={({ pressed }) => [
                   styles.pickerBtn,
@@ -2994,14 +2550,14 @@ export default function TransactionsScreen() {
       </Modal>
 
       <Modal
-        visible={isAccountPickerOpen}
+        visible={isUploadAccountPickerOpen}
         animationType="fade"
         transparent
-        onRequestClose={() => setIsAccountPickerOpen(false)}
+        onRequestClose={() => setIsUploadAccountPickerOpen(false)}
       >
         <Pressable
           style={styles.backdrop}
-          onPress={() => setIsAccountPickerOpen(false)}
+          onPress={() => setIsUploadAccountPickerOpen(false)}
         />
         <View style={styles.pickerSheet}>
           <Text style={styles.pickerTitle}>Select account</Text>
@@ -3010,9 +2566,8 @@ export default function TransactionsScreen() {
               <Pressable
                 key={String(a.id)}
                 onPress={() => {
-                  if (isUploadOpen) setUploadAccountId(a.id);
-                  else setAccountId(a.id);
-                  setIsAccountPickerOpen(false);
+                  setUploadAccountId(a.id);
+                  setIsUploadAccountPickerOpen(false);
                 }}
                 style={({ pressed }) => [
                   styles.pickerRow,
@@ -3023,274 +2578,6 @@ export default function TransactionsScreen() {
               </Pressable>
             ))}
           </ScrollView>
-        </View>
-      </Modal>
-
-      <Modal
-        visible={isPersonPickerOpen}
-        animationType="fade"
-        transparent
-        onRequestClose={() => setIsPersonPickerOpen(false)}
-      >
-        <Pressable
-          style={styles.backdrop}
-          onPress={() => setIsPersonPickerOpen(false)}
-        />
-        <View style={styles.pickerSheet}>
-          <Text style={styles.pickerTitle}>Select person</Text>
-          <TextInput
-            value={personPickerQuery}
-            onChangeText={setPersonPickerQuery}
-            placeholder="Search person…"
-            placeholderTextColor="#6B6B6B"
-            style={styles.pickerSearchInput}
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-          <ScrollView contentContainerStyle={{ gap: 10 }}>
-            <Pressable
-              onPress={() => {
-                setPersonId(null);
-                setIsPersonPickerOpen(false);
-              }}
-              style={({ pressed }) => [
-                styles.pickerRow,
-                pressed && styles.pickerRowPressed,
-              ]}
-            >
-              <Text style={styles.pickerRowText}>None</Text>
-            </Pressable>
-            {canCreatePersonFromQuery ? (
-              <Pressable
-                onPress={async () => {
-                  if (isPersonSaving) return;
-                  const trimmed = personPickerQuery.trim();
-                  if (!trimmed) return;
-                  setIsPersonSaving(true);
-                  try {
-                    const created = await createPeople({ name: trimmed });
-                    await refreshPeople(created.id);
-                    setPersonPickerQuery("");
-                    setIsPersonPickerOpen(false);
-                  } catch (err: any) {
-                    const message =
-                      err?.response?.data?.detail ??
-                      err?.response?.data?.message ??
-                      err?.message ??
-                      "Failed to create person.";
-                    Alert.alert("Error", String(message));
-                  } finally {
-                    setIsPersonSaving(false);
-                  }
-                }}
-                disabled={isPersonSaving}
-                style={({ pressed }) => [
-                  styles.pickerRow,
-                  styles.pickerCreateRow,
-                  (pressed || isPersonSaving) && styles.pickerRowPressed,
-                ]}
-              >
-                <Feather name="plus" size={14} color="#0B0B0B" />
-                <Text style={styles.pickerRowText}>
-                  {isPersonSaving
-                    ? "Adding..."
-                    : `Add "${personPickerQuery.trim()}"`}
-                </Text>
-              </Pressable>
-            ) : null}
-            {peopleFilteredForTxn.map((p) => (
-              <Pressable
-                key={String(p.id)}
-                onPress={() => {
-                  setPersonId(p.id);
-                  setIsPersonPickerOpen(false);
-                }}
-                style={({ pressed }) => [
-                  styles.pickerRow,
-                  pressed && styles.pickerRowPressed,
-                ]}
-              >
-                <Text style={styles.pickerRowText}>{p.name}</Text>
-              </Pressable>
-            ))}
-          </ScrollView>
-        </View>
-      </Modal>
-
-      <Modal
-        visible={isCategoryPickerOpen}
-        animationType="fade"
-        transparent
-        onRequestClose={() => setIsCategoryPickerOpen(false)}
-      >
-        <Pressable
-          style={styles.backdrop}
-          onPress={() => setIsCategoryPickerOpen(false)}
-        />
-        <View style={styles.pickerSheet}>
-          <View style={styles.pickerTitleRow}>
-            <Text style={styles.pickerTitle}>Select category</Text>
-          </View>
-          <TextInput
-            value={categoryPickerQuery}
-            onChangeText={setCategoryPickerQuery}
-            placeholder="Search category…"
-            placeholderTextColor="#6B6B6B"
-            style={styles.pickerSearchInput}
-            autoCapitalize="none"
-            autoCorrect={false}
-          />
-          <ScrollView contentContainerStyle={{ gap: 10 }}>
-            <Pressable
-              onPress={() => {
-                setCategoryId(null);
-                setIsCategoryPickerOpen(false);
-              }}
-              style={({ pressed }) => [
-                styles.pickerRow,
-                pressed && styles.pickerRowPressed,
-              ]}
-            >
-              <Text style={styles.pickerRowText}>None</Text>
-            </Pressable>
-            {canCreateCategoryFromQuery ? (
-              <Pressable
-                onPress={async () => {
-                  if (isCategorySaving) return;
-                  const trimmed = categoryPickerQuery.trim();
-                  if (!trimmed) return;
-                  setIsCategorySaving(true);
-                  try {
-                    const created = await createCategory({ name: trimmed });
-                    await refreshCategories(created.id);
-                    setCategoryPickerQuery("");
-                    setIsCategoryPickerOpen(false);
-                  } catch (err: any) {
-                    const message =
-                      err?.response?.data?.detail ??
-                      err?.response?.data?.message ??
-                      err?.message ??
-                      "Failed to create category.";
-                    Alert.alert("Error", String(message));
-                  } finally {
-                    setIsCategorySaving(false);
-                  }
-                }}
-                disabled={isCategorySaving}
-                style={({ pressed }) => [
-                  styles.pickerRow,
-                  styles.pickerCreateRow,
-                  (pressed || isCategorySaving) && styles.pickerRowPressed,
-                ]}
-              >
-                <Feather name="plus" size={14} color="#0B0B0B" />
-                <Text style={styles.pickerRowText}>
-                  {isCategorySaving
-                    ? "Adding..."
-                    : `Add "${categoryPickerQuery.trim()}"`}
-                </Text>
-              </Pressable>
-            ) : null}
-            {categoriesFiltered.map((c) => (
-              <Pressable
-                key={String(c.id)}
-                onPress={() => {
-                  setCategoryId(c.id);
-                  setIsCategoryPickerOpen(false);
-                }}
-                style={({ pressed }) => [
-                  styles.pickerRow,
-                  pressed && styles.pickerRowPressed,
-                ]}
-              >
-                <Text style={styles.pickerRowText}>{c.name}</Text>
-              </Pressable>
-            ))}
-          </ScrollView>
-        </View>
-      </Modal>
-
-      <Modal
-        visible={isAddCategoryOpen}
-        animationType="slide"
-        transparent
-        onRequestClose={() =>
-          isCategorySaving ? null : setIsAddCategoryOpen(false)
-        }
-      >
-        <Pressable
-          style={styles.backdrop}
-          onPress={() =>
-            isCategorySaving ? null : setIsAddCategoryOpen(false)
-          }
-        />
-        <View style={styles.sheet}>
-          <View style={styles.sheetHeader}>
-            <Text style={styles.sheetTitle}>Add category</Text>
-            <Pressable
-              onPress={() => setIsAddCategoryOpen(false)}
-              disabled={isCategorySaving}
-              style={({ pressed }) => [
-                styles.closeBtn,
-                pressed && styles.closeBtnPressed,
-                isCategorySaving && { opacity: 0.6 },
-              ]}
-            >
-              <Text style={styles.closeBtnText}>Close</Text>
-            </Pressable>
-          </View>
-
-          <View style={{ gap: 10 }}>
-            <View style={{ gap: 6 }}>
-              <Text style={styles.label}>Name</Text>
-              <TextInput
-                style={styles.input}
-                value={newCategoryName}
-                onChangeText={setNewCategoryName}
-                placeholder="e.g. Food"
-                placeholderTextColor="#6B6B6B"
-                editable={!isCategorySaving}
-                autoCapitalize="words"
-              />
-            </View>
-
-            <Pressable
-              onPress={async () => {
-                if (isCategorySaving) return;
-                const trimmed = newCategoryName.trim();
-                if (!trimmed) {
-                  Alert.alert("Validation", "Category name is required.");
-                  return;
-                }
-
-                setIsCategorySaving(true);
-                try {
-                  const created = await createCategory({ name: trimmed });
-                  await refreshCategories(created.id);
-                  setIsAddCategoryOpen(false);
-                  setIsCategoryPickerOpen(false);
-                } catch (err: any) {
-                  const message =
-                    err?.response?.data?.detail ??
-                    err?.response?.data?.message ??
-                    err?.message ??
-                    "Failed to create category.";
-                  Alert.alert("Error", String(message));
-                } finally {
-                  setIsCategorySaving(false);
-                }
-              }}
-              disabled={isCategorySaving}
-              style={({ pressed }) => [
-                styles.saveBtn,
-                (pressed || isCategorySaving) && styles.saveBtnPressed,
-              ]}
-            >
-              <Text style={styles.saveBtnText}>
-                {isCategorySaving ? "Saving…" : "Save"}
-              </Text>
-            </Pressable>
-          </View>
         </View>
       </Modal>
     </AppTabScreen>
@@ -3820,6 +3107,16 @@ const styles = StyleSheet.create({
   },
   cellDescPressablePressed: { opacity: 0.85 },
   cellDescPressablePressedPerson: { opacity: 0.88 },
+  cellRemark: {
+    color: "#fff",
+    backgroundColor: "#0B0B0B",
+    borderRadius: 10,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    width: "100%",
+    textAlign: "center",
+    fontSize: 16,
+  },
   cellDesc: {
     color: "#0B0B0B",
     fontFamily: "Poppins_600SemiBold",
@@ -4323,6 +3620,14 @@ const styles = StyleSheet.create({
   secondaryResetBtnPressed: { backgroundColor: "#F5F5F5" },
   secondaryResetText: {
     color: "#0B0B0B",
+  },
+  bulkActionsRow: {
+    flexDirection: "row",
+    gap: 8,
+    marginTop: 8,
+    paddingTop: 8,
+    borderTopWidth: 1,
+    borderTopColor: "#E7E7E7",
   },
   uploadCard: {
     borderWidth: 1,

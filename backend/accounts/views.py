@@ -67,6 +67,7 @@ class AccountViewSet(BaseModelViewSet):
                 {
                     "id": t.id,
                     "txn_date": t.txn_date,
+                    "remark": t.remark,
                     "description": t.description,
                     "credit": str(t.credit),
                     "debit": str(t.debit),
@@ -74,7 +75,7 @@ class AccountViewSet(BaseModelViewSet):
                     "type": "credit" if t.credit > 0 else "debit",
                     "person": t.person_id,
                 }
-                for t in qs.select_related("person").order_by("txn_date", "id")
+                for t in qs.select_related("person").order_by("-txn_date", "-id")
             ]
         else:
             payload["transactions"] = []

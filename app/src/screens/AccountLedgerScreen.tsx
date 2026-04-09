@@ -9,6 +9,7 @@ import {
   TextInput,
   View,
 } from "react-native";
+import { Feather } from "@expo/vector-icons";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import type { RouteProp } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
@@ -17,10 +18,25 @@ import Svg, { Circle, Path } from "react-native-svg";
 import AppTabScreen from "../components/AppTabScreen";
 import type { AppTabParamList } from "../navigation/AppNavigator";
 import {
+  TransactionBulkEditModal,
+  TransactionBulkSelectionBar,
+  TransactionFormModal,
+  type BulkUpdatePatch,
+  type TransactionEditState,
+  IS_WEB,
+} from "../components/transactions";
+import {
   getAccountLedger,
   type AccountLedger,
   type AccountLedgerRow,
 } from "../services/accounts";
+import { listCategories, type Category } from "../services/categories";
+import { listPeoples, type People } from "../services/peoples";
+import {
+  bulkDeleteTransactions,
+  bulkUpdateTransactions,
+  getTransaction,
+} from "../services/transactions";
 import { formatMoney2 } from "../utils/money";
 
 function parseMoney(s: string): number {
@@ -96,7 +112,17 @@ function CreditDebitPie({
   );
 }
 
-function LedgerRow({ row }: { row: AccountLedgerRow }) {
+function LedgerRow({
+  row,
+  selected,
+  onToggleSelect,
+  onPressRow,
+}: {
+  row: AccountLedgerRow;
+  selected: boolean;
+  onToggleSelect: () => void;
+  onPressRow: () => void;
+}) {
   const isCredit = row.type === "credit";
   const sub =
     row.person_name.trim() ||
@@ -104,15 +130,38 @@ function LedgerRow({ row }: { row: AccountLedgerRow }) {
     "—";
   return (
     <View style={styles.tableRow}>
+      <Pressable
+        onPress={onToggleSelect}
+        style={({ pressed }) => [
+          styles.selectCellBtn,
+          pressed && styles.selectCellBtnPressed,
+          selected && styles.selectCellBtnActive,
+        ]}
+        accessibilityRole="checkbox"
+        accessibilityState={{ checked: selected }}
+      >
+        {selected ? <Feather name="check" size={14} color="#FFFFFF" /> : null}
+      </Pressable>
       <Text style={styles.cellDate}>{row.txn_date}</Text>
-      <View style={styles.cellDescWrap}>
+      <Pressable
+        onPress={onPressRow}
+        style={({ pressed }) => [
+          styles.cellDescWrap,
+          pressed && styles.cellDescPressed,
+        ]}
+      >
+        {row.remark ? (
+          <Text style={styles.cellRemark} numberOfLines={2}>
+            {row.remark}
+          </Text>
+        ) : null}
         <Text style={styles.cellDesc} numberOfLines={2}>
           {row.description || "—"}
         </Text>
         <Text style={styles.cellAccount} numberOfLines={1}>
           {sub}
         </Text>
-      </View>
+      </Pressable>
       <Text style={[styles.cellMoney, isCredit ? styles.creditText : styles.debitText]}>
         {formatMoney2(isCredit ? row.credit : row.debit)}
       </Text>
@@ -129,6 +178,15 @@ export default function AccountLedgerScreen() {
   const [isLoading, setIsLoading] = React.useState(true);
   const [filterYear, setFilterYear] = React.useState("");
   const [filterMonth, setFilterMonth] = React.useState("");
+  const [people, setPeople] = React.useState<People[]>([]);
+  const [categories, setCategories] = React.useState<Category[]>([]);
+  const [selectedTxnIds, setSelectedTxnIds] = React.useState<string[]>([]);
+  const [isBulkEditOpen, setIsBulkEditOpen] = React.useState(false);
+  const [isBulkSaving, setIsBulkSaving] = React.useState(false);
+  const [isTxnModalOpen, setIsTxnModalOpen] = React.useState(false);
+  const [editState, setEditState] = React.useState<TransactionEditState>({
+    mode: "create",
+  });
 
   const loadLedger = React.useCallback(
     async (yearStr: string, monthStr: string) => {
@@ -159,6 +217,24 @@ export default function AccountLedgerScreen() {
     void loadLedger("", "");
   }, [loadLedger]);
 
+  React.useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [p, c] = await Promise.all([listPeoples(), listCategories()]);
+        if (!cancelled) {
+          setPeople(p);
+          setCategories(c);
+        }
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const displayName = ledger?.account_name || nameFromRoute || "Account";
   const creditNum = ledger ? parseMoney(ledger.total_credit) : 0;
   const debitNum = ledger ? parseMoney(ledger.total_debit) : 0;
@@ -176,6 +252,118 @@ export default function AccountLedgerScreen() {
     await loadLedger("", "");
   }
 
+  const rowIds = React.useMemo(
+    () => (ledger?.transactions ?? []).map((r) => String(r.id)),
+    [ledger?.transactions],
+  );
+  const areAllSelected =
+    rowIds.length > 0 && rowIds.every((id) => selectedTxnIds.includes(id));
+
+  React.useEffect(() => {
+    const visible = new Set(rowIds);
+    setSelectedTxnIds((prev) => prev.filter((id) => visible.has(id)));
+  }, [rowIds]);
+
+  function toggleTxnSelection(id: string | number) {
+    const key = String(id);
+    setSelectedTxnIds((prev) =>
+      prev.includes(key) ? prev.filter((x) => x !== key) : [...prev, key],
+    );
+  }
+
+  function toggleSelectAll() {
+    setSelectedTxnIds((prev) => {
+      if (areAllSelected) {
+        return prev.filter((id) => !rowIds.includes(id));
+      }
+      return Array.from(new Set([...prev, ...rowIds]));
+    });
+  }
+
+  async function reloadLedger() {
+    await loadLedger(filterYear, filterMonth);
+  }
+
+  async function onApplyBulkUpdate(patch: BulkUpdatePatch) {
+    if (selectedTxnIds.length === 0 || isBulkSaving) return;
+    setIsBulkSaving(true);
+    try {
+      await bulkUpdateTransactions({
+        ids: selectedTxnIds,
+        person: patch.person,
+        category: patch.category,
+        txn_type: patch.txn_type,
+      });
+      setIsBulkEditOpen(false);
+      setSelectedTxnIds([]);
+      await reloadLedger();
+    } catch (err: any) {
+      const message =
+        err?.response?.data?.detail ??
+        err?.response?.data?.message ??
+        err?.message ??
+        "Failed bulk update.";
+      Alert.alert("Error", String(message));
+    } finally {
+      setIsBulkSaving(false);
+    }
+  }
+
+  async function onBulkDeleteSelected() {
+    if (selectedTxnIds.length === 0 || isBulkSaving) return;
+    const run = async () => {
+      setIsBulkSaving(true);
+      try {
+        await bulkDeleteTransactions({ ids: selectedTxnIds });
+        setSelectedTxnIds([]);
+        await reloadLedger();
+      } catch (err: any) {
+        const message =
+          err?.response?.data?.detail ??
+          err?.response?.data?.message ??
+          err?.message ??
+          "Failed bulk delete.";
+        Alert.alert("Error", String(message));
+      } finally {
+        setIsBulkSaving(false);
+      }
+    };
+    if (IS_WEB) {
+      if (window.confirm(`Delete ${selectedTxnIds.length} transactions?`)) {
+        void run();
+      }
+      return;
+    }
+    Alert.alert(
+      "Delete selected",
+      `Delete ${selectedTxnIds.length} transactions? This cannot be undone.`,
+      [
+        { text: "Cancel", style: "cancel" },
+        { text: "Delete", style: "destructive", onPress: () => void run() },
+      ],
+    );
+  }
+
+  function openCreate() {
+    setEditState({ mode: "create" });
+    setIsTxnModalOpen(true);
+  }
+
+  async function openEditRow(rowId: string | number) {
+    try {
+      const txn = await getTransaction(rowId);
+      setEditState({ mode: "edit", txn });
+      setIsTxnModalOpen(true);
+    } catch (err: any) {
+      const message =
+        err?.response?.data?.detail ??
+        err?.response?.data?.message ??
+        err?.message ??
+        "Failed to load transaction.";
+      Alert.alert("Error", String(message));
+    }
+  }
+
   return (
     <AppTabScreen>
       <View style={styles.topBar}>
@@ -188,7 +376,12 @@ export default function AccountLedgerScreen() {
         <Text style={styles.topTitle} numberOfLines={1}>
           Account ledger
         </Text>
-        <View style={styles.topBarSpacer} />
+        <Pressable
+          onPress={openCreate}
+          style={({ pressed }) => [styles.topAddBtn, pressed && styles.topAddBtnPressed]}
+        >
+          <Text style={styles.topAddBtnText}>Add</Text>
+        </Pressable>
       </View>
 
       <Text style={styles.heroTitle}>{displayName}</Text>
@@ -234,6 +427,14 @@ export default function AccountLedgerScreen() {
           </Pressable>
         </View>
       </View>
+
+      <TransactionBulkSelectionBar
+        selectedCount={!isLoading && ledger ? selectedTxnIds.length : 0}
+        onBulkUpdate={() => setIsBulkEditOpen(true)}
+        onBulkDelete={() => void onBulkDeleteSelected()}
+        onClear={() => setSelectedTxnIds([])}
+        isBulkDeleting={isBulkSaving}
+      />
 
       {isLoading ? (
         <View style={styles.center}>
@@ -292,8 +493,24 @@ export default function AccountLedgerScreen() {
             ) : null}
           </View>
 
-          <Text style={styles.tableTitle}>Transactions</Text>
+          <View style={styles.tableTitleRow}>
+            <Text style={styles.tableTitle}>Transactions</Text>
+            {ledger.transactions.length > 0 ? (
+              <Pressable
+                onPress={toggleSelectAll}
+                style={({ pressed }) => [
+                  styles.selectAllBtn,
+                  pressed && styles.selectAllBtnPressed,
+                ]}
+              >
+                <Text style={styles.selectAllBtnText}>
+                  {areAllSelected ? "Unselect all" : "Select all"}
+                </Text>
+              </Pressable>
+            ) : null}
+          </View>
           <View style={styles.tableHead}>
+            <Text style={[styles.th, styles.thSelect]}>Sel</Text>
             <Text style={[styles.th, styles.thDate]}>Date</Text>
             <Text style={[styles.th, styles.thDesc]}>Description / Person</Text>
             <Text style={[styles.th, styles.thAmt]}>Amount</Text>
@@ -303,10 +520,36 @@ export default function AccountLedgerScreen() {
               <Text style={styles.muted}>No rows for this filter.</Text>
             </View>
           ) : (
-            ledger.transactions.map((row) => <LedgerRow key={String(row.id)} row={row} />)
+            ledger.transactions.map((row) => (
+              <LedgerRow
+                key={String(row.id)}
+                row={row}
+                selected={selectedTxnIds.includes(String(row.id))}
+                onToggleSelect={() => toggleTxnSelection(row.id)}
+                onPressRow={() => void openEditRow(row.id)}
+              />
+            ))
           )}
         </ScrollView>
       ) : null}
+
+      <TransactionBulkEditModal
+        visible={isBulkEditOpen}
+        onRequestClose={() => (isBulkSaving ? null : setIsBulkEditOpen(false))}
+        people={people}
+        categories={categories}
+        isSaving={isBulkSaving}
+        onApply={(patch) => void onApplyBulkUpdate(patch)}
+      />
+
+      <TransactionFormModal
+        visible={isTxnModalOpen}
+        onRequestClose={() => setIsTxnModalOpen(false)}
+        editState={editState}
+        createDefaults={{ accountId }}
+        onSaved={() => void reloadLedger()}
+        onDeleted={() => void reloadLedger()}
+      />
     </AppTabScreen>
   );
 }
@@ -337,7 +580,21 @@ const styles = StyleSheet.create({
     letterSpacing: 1.2,
     textTransform: "uppercase",
   },
-  topBarSpacer: { width: 64 },
+  topAddBtn: {
+    minWidth: 56,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#0B0B0B",
+    alignItems: "center",
+  },
+  topAddBtnPressed: { backgroundColor: "#F5F5F5" },
+  topAddBtnText: {
+    color: "#0B0B0B",
+    fontFamily: "Poppins_600SemiBold",
+    fontSize: 13,
+  },
   heroTitle: {
     color: "#0B0B0B",
     fontFamily: "Poppins_800ExtraBold",
@@ -447,11 +704,30 @@ const styles = StyleSheet.create({
     borderColor: "#E7E7E7",
     borderRadius: 999,
   },
+  tableTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 8,
+    marginTop: 4,
+  },
   tableTitle: {
     color: "#0B0B0B",
     fontFamily: "Poppins_700Bold",
     fontSize: 15,
-    marginTop: 4,
+  },
+  selectAllBtn: {
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: "#E7E7E7",
+  },
+  selectAllBtnPressed: { backgroundColor: "#F5F5F5" },
+  selectAllBtnText: {
+    color: "#0B0B0B",
+    fontFamily: "Poppins_600SemiBold",
+    fontSize: 11,
   },
   tableHead: {
     flexDirection: "row",
@@ -459,11 +735,13 @@ const styles = StyleSheet.create({
     borderBottomColor: "#E7E7E7",
     paddingBottom: 8,
     gap: 8,
+    alignItems: "center",
   },
   th: { color: "#6B6B6B", fontFamily: "Poppins_600SemiBold", fontSize: 11 },
-  thDate: { width: 92 },
+  thSelect: { width: 36, textAlign: "center" },
+  thDate: { width: 80 },
   thDesc: { flex: 1 },
-  thAmt: { width: 88, textAlign: "right" },
+  thAmt: { width: 80, textAlign: "right" },
   tableRow: {
     flexDirection: "row",
     alignItems: "flex-start",
@@ -472,17 +750,39 @@ const styles = StyleSheet.create({
     borderBottomColor: "#F0F0F0",
     gap: 8,
   },
+  selectCellBtn: {
+    width: 26,
+    height: 26,
+    borderWidth: 1,
+    borderColor: "#D6D6D6",
+    borderRadius: 7,
+    marginRight: 2,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#FFFFFF",
+  },
+  selectCellBtnPressed: { backgroundColor: "#F5F5F5" },
+  selectCellBtnActive: {
+    borderColor: "#0B0B0B",
+    backgroundColor: "#0B0B0B",
+  },
   cellDate: {
-    width: 92,
+    width: 80,
     color: "#0B0B0B",
     fontFamily: "Poppins_600SemiBold",
     fontSize: 12,
   },
   cellDescWrap: { flex: 1, gap: 4 },
+  cellDescPressed: { opacity: 0.88 },
+  cellRemark: {
+    color: "#5C5C5C",
+    fontFamily: "Poppins_500Medium",
+    fontSize: 11,
+  },
   cellDesc: { color: "#0B0B0B", fontFamily: "Poppins_400Regular", fontSize: 12 },
   cellAccount: { color: "#6B6B6B", fontFamily: "Poppins_400Regular", fontSize: 11 },
   cellMoney: {
-    width: 88,
+    width: 80,
     textAlign: "right",
     fontFamily: "Poppins_700Bold",
     fontSize: 12,

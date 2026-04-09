@@ -78,6 +78,7 @@ class Transaction(models.Model):
 
     txn_date = models.DateField()
     description = models.TextField()
+    remark = models.TextField(blank=True, null=True)
 
     ref_no_or_cheque_no = models.CharField(
         max_length=100,

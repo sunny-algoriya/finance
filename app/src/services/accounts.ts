@@ -80,6 +80,7 @@ export type AccountLedgerQuery = {
 export type AccountLedgerRow = {
   id: number | string;
   txn_date: string;
+  remark: string | null;
   description: string;
   credit: string;
   debit: string;
@@ -108,9 +109,14 @@ function normalizeAccountLedgerRow(raw: any): AccountLedgerRow {
   const id = raw?.id ?? raw?.pk;
   if (id === undefined || id === null) throw new Error("Ledger row missing id.");
   const type = raw?.type === "credit" ? "credit" : "debit";
+  const remarkRaw = raw?.remark;
   return {
     id,
     txn_date: String(raw?.txn_date ?? raw?.txnDate ?? ""),
+    remark:
+      remarkRaw === undefined || remarkRaw === null || remarkRaw === ""
+        ? null
+        : String(remarkRaw),
     description: String(raw?.description ?? ""),
     credit: String(raw?.credit ?? "0"),
     debit: String(raw?.debit ?? "0"),

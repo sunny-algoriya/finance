@@ -40,6 +40,7 @@ class TransactionAdmin(admin.ModelAdmin):
         "user",
         "account",
         "txn_date",
+        "remark",
         "description",
     )
     

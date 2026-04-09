@@ -100,6 +100,27 @@ class TransactionViewSet(BaseModelViewSet):
         if person_id is not None:
             qs = qs.filter(person_id=person_id)
 
+        # Person linked vs unlinked: ?ispersonthere=linked|unlinked|all (omit = all)
+        ispersonthere_raw = (
+            qp.get("ispersonthere")
+            or qp.get("filter_ispersonthere")
+            or qp.get("filter[ispersonthere]")
+        )
+        if ispersonthere_raw is not None and str(ispersonthere_raw).strip():
+            ip = str(ispersonthere_raw).strip().lower()
+            if ip in {"all", "both", "any"}:
+                pass
+            elif ip in {"linked", "true", "1", "yes"}:
+                qs = qs.filter(person__isnull=False)
+            elif ip in {"unlinked", "false", "0", "no"}:
+                qs = qs.filter(person__isnull=True)
+            else:
+                raise ValidationError(
+                    {
+                        "ispersonthere": 'Invalid. Use "linked", "unlinked", or "all".',
+                    }
+                )
+
         if type_raw is not None and str(type_raw).strip():
             type_value = str(type_raw).strip().lower()
             if type_value in {"all", "both", "any"}:

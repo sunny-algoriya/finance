@@ -122,6 +122,7 @@ class PersonViewSet(BaseModelViewSet):
                 {
                     "id": t.id,
                     "txn_date": t.txn_date,
+                    "remark": t.remark,
                     "description": t.description,
                     "credit": str(t.credit),
                     "debit": str(t.debit),
@@ -130,7 +131,7 @@ class PersonViewSet(BaseModelViewSet):
                     "account": t.account_id,
                     "account_name": t.account.name,
                 }
-                for t in qs.select_related("account").order_by("txn_date", "id")
+                for t in qs.select_related("account").order_by("-txn_date", "-id")
             ]
         else:
             payload["transactions"] = []
