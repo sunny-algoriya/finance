@@ -1,3 +1,4 @@
+import re
 from collections import OrderedDict
 from datetime import date
 from decimal import Decimal, InvalidOperation
@@ -24,6 +25,37 @@ from rest_framework.permissions import IsAuthenticated
 
 def _truthy_query_param(qp, name):
     return str(qp.get(name, "")).lower() in {"1", "true", "yes"}
+
+
+# Standalone numeric tokens (word boundaries — avoids "s1x" → "1").
+_DESC_QUERY_NUM_RE = re.compile(r"\b\d+(?:\.\d+)?\b")
+
+
+def _is_pure_numeric_desc_query(desc_s: str) -> bool:
+    """True when the whole query is only a number (e.g. "600" or "12.50")."""
+    s = str(desc_s).strip()
+    if not s:
+        return False
+    try:
+        Decimal(s).quantize(Decimal("0.01"))
+    except (InvalidOperation, ValueError):
+        return False
+    return True
+
+
+def _decimal_amounts_in_description_query(desc_s: str):
+    """Unique Decimal amounts (2dp) for standalone numeric tokens in the search string."""
+    seen = set()
+    out = []
+    for m in _DESC_QUERY_NUM_RE.finditer(desc_s):
+        try:
+            amt = Decimal(m.group()).quantize(Decimal("0.01"))
+        except (InvalidOperation, ValueError):
+            continue
+        if amt not in seen:
+            seen.add(amt)
+            out.append(amt)
+    return out
 
 
 def _filter_by_hidden_visibility(qs, qp):
@@ -63,15 +95,31 @@ class TransactionViewSet(BaseModelViewSet):
         qp = self.request.query_params
         qs = _filter_by_hidden_visibility(qs, qp)
 
-        # Description substring (case-insensitive), e.g. ?search=vapi
-        desc_q = (
-            qp.get("description")
-            or qp.get("search")
-            or qp.get("q")
-            or qp.get("filter[description]")
-        )
+        # Description substring (not remark). e.g. ?description=lunch
+        # - Pure number (?description=600): match description contains "600" OR that amount.
+        # - Text + number (?description=paytm.s1x+25): require BOTH description contains
+        #   the full query AND credit/debit equals that amount (no unrelated amount-only rows).
+        desc_q = qp.get("description") or qp.get("filter[description]")
         if desc_q is not None and str(desc_q).strip():
-            qs = qs.filter(description__icontains=str(desc_q).strip())
+            desc_s = str(desc_q).strip()
+            amounts = _decimal_amounts_in_description_query(desc_s)
+            if _is_pure_numeric_desc_query(desc_s):
+                try:
+                    only_amt = Decimal(desc_s).quantize(Decimal("0.01"))
+                except (InvalidOperation, ValueError):
+                    desc_filter = Q(description__icontains=desc_s)
+                else:
+                    desc_filter = Q(description__icontains=desc_s) | (
+                        Q(credit=only_amt) | Q(debit=only_amt)
+                    )
+            elif amounts:
+                amount_q = Q()
+                for amt in amounts:
+                    amount_q |= Q(credit=amt) | Q(debit=amt)
+                desc_filter = Q(description__icontains=desc_s) & amount_q
+            else:
+                desc_filter = Q(description__icontains=desc_s)
+            qs = qs.filter(desc_filter)
 
         # Supported filter params (any of these styles):
         # - ?year=2026&month=3
@@ -88,11 +136,16 @@ class TransactionViewSet(BaseModelViewSet):
         end_date_raw = qp.get("end_date") or qp.get("filter_end_date") or qp.get("filter[end_date]")
         amount_min_raw = qp.get("amount_min") or qp.get("filter_amount_min") or qp.get("filter[amount_min]") or qp.get("min_amount")
         amount_max_raw = qp.get("amount_max") or qp.get("filter_amount_max") or qp.get("filter[amount_max]") or qp.get("max_amount")
+        amount_exact_raw = (
+            qp.get("amount")
+            or qp.get("filter_amount")
+            or qp.get("filter[amount]")
+            or qp.get("exact_amount")
+        )
         account_id = qp.get("account")
         person_id = qp.get("person")
         type_raw = qp.get("type")
-        txn_type = qp.get("txn_type")
-        
+        txn_type_raw = qp.get("txn_type")
 
         if account_id is not None:
             qs = qs.filter(account_id=account_id)
@@ -121,6 +174,27 @@ class TransactionViewSet(BaseModelViewSet):
                     }
                 )
 
+        # Remark present vs empty: ?isremarkthere=linked|unlinked|all
+        isremarkthere_raw = (
+            qp.get("isremarkthere")
+            or qp.get("filter_isremarkthere")
+            or qp.get("filter[isremarkthere]")
+        )
+        if isremarkthere_raw is not None and str(isremarkthere_raw).strip():
+            ir = str(isremarkthere_raw).strip().lower()
+            if ir in {"all", "both", "any"}:
+                pass
+            elif ir in {"linked", "true", "1", "yes"}:
+                qs = qs.exclude(remark__isnull=True).exclude(remark="")
+            elif ir in {"unlinked", "false", "0", "no"}:
+                qs = qs.filter(Q(remark__isnull=True) | Q(remark=""))
+            else:
+                raise ValidationError(
+                    {
+                        "isremarkthere": 'Invalid. Use "linked", "unlinked", or "all".',
+                    }
+                )
+
         if type_raw is not None and str(type_raw).strip():
             type_value = str(type_raw).strip().lower()
             if type_value in {"all", "both", "any"}:
@@ -131,6 +205,17 @@ class TransactionViewSet(BaseModelViewSet):
                 qs = qs.filter(debit__gt=0)
             else:
                 raise ValidationError({"type": 'Invalid type. Use "credit", "debit", or "all".'})
+
+        if txn_type_raw is not None and str(txn_type_raw).strip():
+            tt = str(txn_type_raw).strip()
+            allowed = {c[0] for c in Transaction.TransactionType.choices}
+            if tt not in allowed:
+                raise ValidationError(
+                    {
+                        "txn_type": f'Invalid txn_type. Use one of: {", ".join(sorted(allowed))}.',
+                    }
+                )
+            qs = qs.filter(txn_type=tt)
 
         if year_month and (not year_raw or not month_raw):
             # Expect YYYY-MM
@@ -194,6 +279,13 @@ class TransactionViewSet(BaseModelViewSet):
 
         if amount_min is not None and amount_max is not None and amount_min > amount_max:
             raise ValidationError({"amount_max": "amount_max must be >= amount_min."})
+
+        if amount_exact_raw is not None and str(amount_exact_raw).strip():
+            try:
+                amt_exact = Decimal(str(amount_exact_raw).strip()).quantize(Decimal("0.01"))
+            except (InvalidOperation, ValueError):
+                raise ValidationError({"amount": "Invalid amount. Use a numeric value for exact match."})
+            qs = qs.filter(Q(credit=amt_exact) | Q(debit=amt_exact))
 
         return qs.order_by("-txn_date", "-id")
 

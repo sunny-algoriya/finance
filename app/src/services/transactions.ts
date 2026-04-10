@@ -147,8 +147,15 @@ export type TransactionListParams = {
   include_hidden?: boolean;
   /** Omit or `all`: no filter. `linked`: person assigned. `unlinked`: no person. */
   ispersonthere?: "linked" | "unlinked" | "all" | null;
+  /** Omit or `all`: no filter. `linked`: remark non-empty. `unlinked`: no remark. */
+  isremarkthere?: "linked" | "unlinked" | "all" | null;
+  /** Exact match on credit or debit amount (two decimal places). */
+  amount?: string | number;
   page?: number;
-  search?: string;
+  /** Override page size (backend caps via `max_page_size`, default 50). */
+  page_size?: number;
+  /** Substring match on **description** only (sent as `description` to the API). */
+  description?: string;
 };
 
 export type PaginatedTransactionList = {
@@ -173,6 +180,7 @@ function buildTransactionFilterQuery(
     end_date,
     amount_min,
     amount_max,
+    amount,
     account,
     person,
     type,
@@ -180,8 +188,10 @@ function buildTransactionFilterQuery(
     show,
     include_hidden,
     ispersonthere,
+    isremarkthere,
     page = 1,
-    search,
+    page_size,
+    description,
   } = params;
   const normalized: Record<string, string | number | boolean | undefined> = {
     year: year ?? undefined,
@@ -200,9 +210,26 @@ function buildTransactionFilterQuery(
     normalized.page = page;
   }
 
-  const searchTrim = typeof search === "string" ? search.trim() : "";
-  if (searchTrim) {
-    normalized.search = searchTrim;
+  if (
+    page_size !== undefined &&
+    page_size !== null &&
+    Number.isFinite(Number(page_size)) &&
+    Number(page_size) > 0
+  ) {
+    normalized.page_size = Number(page_size);
+  }
+
+  const descTrim = typeof description === "string" ? description.trim() : "";
+  if (descTrim) {
+    normalized.description = descTrim;
+  }
+
+  const amountTrim =
+    amount !== undefined && amount !== null && String(amount).trim() !== ""
+      ? String(amount).trim()
+      : "";
+  if (amountTrim) {
+    normalized.amount = amountTrim;
   }
 
   if (show === "hidden") {
@@ -213,6 +240,10 @@ function buildTransactionFilterQuery(
 
   if (ispersonthere === "linked" || ispersonthere === "unlinked") {
     normalized.ispersonthere = ispersonthere;
+  }
+
+  if (isremarkthere === "linked" || isremarkthere === "unlinked") {
+    normalized.isremarkthere = isremarkthere;
   }
 
   const hasParams = Object.values(normalized).some((v) => v !== undefined);
