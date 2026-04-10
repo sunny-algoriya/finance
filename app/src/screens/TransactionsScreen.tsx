@@ -57,6 +57,21 @@ const TXN_LIST_PAGE_SIZE_LOAD_ALL = 500;
 /** Delay after typing stops before exact-amount filter triggers a list fetch (longer than description search). */
 const TXN_AMOUNT_FILTER_DEBOUNCE_MS = 750;
 
+const MONTH_SHORT_NAMES = [
+  "Jan",
+  "Feb",
+  "Mar",
+  "Apr",
+  "May",
+  "Jun",
+  "Jul",
+  "Aug",
+  "Sep",
+  "Oct",
+  "Nov",
+  "Dec",
+] as const;
+
 type TxnVisibilityFilter = "visible" | "hidden" | "all";
 
 type TxnPersonLinkedFilter = "all" | "linked" | "unlinked";
@@ -1091,22 +1106,8 @@ export default function TransactionsScreen() {
 
   const monthShortLabel = React.useMemo(() => {
     const m = Number.parseInt(selectedMonth, 10);
-    const names = [
-      "Jan",
-      "Feb",
-      "Mar",
-      "Apr",
-      "May",
-      "Jun",
-      "Jul",
-      "Aug",
-      "Sep",
-      "Oct",
-      "Nov",
-      "Dec",
-    ];
     return Number.isFinite(m) && m >= 1 && m <= 12
-      ? names[m - 1]
+      ? MONTH_SHORT_NAMES[m - 1]
       : selectedMonth;
   }, [selectedMonth]);
 
@@ -1475,7 +1476,6 @@ export default function TransactionsScreen() {
           onPress={() => setIsMonthPickerOpen(false)}
         />
         <View style={styles.pickerSheet}>
-          <Text style={styles.pickerTitle}>Select month</Text>
           <ScrollView contentContainerStyle={{ gap: 10 }}>
             {monthOptions.map((opt) => (
               <Pressable
@@ -1491,7 +1491,9 @@ export default function TransactionsScreen() {
                   pressed && styles.pickerRowPressed,
                 ]}
               >
-                <Text style={styles.pickerRowText}>{opt}</Text>
+                <Text style={styles.pickerRowText}>
+                  {opt} — {MONTH_SHORT_NAMES[Number.parseInt(opt, 10) - 1]}
+                </Text>
               </Pressable>
             ))}
           </ScrollView>
@@ -2320,10 +2322,6 @@ export default function TransactionsScreen() {
             </View>
           ) : (
             <View style={styles.txnTableWrap}>
-              <View style={[styles.tableHead, { marginTop: 18 }]}>
-                <Text style={[styles.th, styles.thDesc]}>Description</Text>
-                <Text style={[styles.th, styles.thAmt]}>Amount</Text>
-              </View>
               {txns.map((t) => {
                 const accName =
                   accountById.get(String(t.account))?.name ?? "Account";
