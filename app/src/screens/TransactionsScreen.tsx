@@ -2179,7 +2179,7 @@ export default function TransactionsScreen() {
               onChangeText={(v) =>
                 setFilterAmountExactInput(normalizeAmountFilterInput(v))
               }
-              placeholder="Amount"
+              placeholder="Amt"
               placeholderTextColor="#9A9A9A"
               style={styles.txnAmountInput}
               keyboardType="decimal-pad"
@@ -2316,9 +2316,6 @@ export default function TransactionsScreen() {
           {txns.length === 0 ? (
             <View style={styles.empty}>
               <Text style={styles.emptyTitle}>No transactions yet</Text>
-              <Text style={styles.muted}>
-                Tap Add to create your first one.
-              </Text>
             </View>
           ) : (
             <View style={styles.txnTableWrap}>
@@ -2375,7 +2372,7 @@ export default function TransactionsScreen() {
                                 />
                               ) : null}
                             </Pressable>
-                            <Pressable
+                            {/* <Pressable
                               onPress={() => void onToggleTransactionHidden(t)}
                               disabled={hidingTxnId === String(t.id)}
                               hitSlop={8}
@@ -2410,7 +2407,7 @@ export default function TransactionsScreen() {
                                       : "#0B0B0B"
                                 }
                               />
-                            </Pressable>
+                            </Pressable> */}
                             <Pressable
                               onPress={() =>
                                 void onDelete(t, { confirm: true })
@@ -3150,7 +3147,7 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingVertical: Platform.OS === "android" ? 6 : 4,
     fontFamily: "Poppins_400Regular",
-    fontSize: 8,
+    fontSize: 12,
     color: "#0B0B0B",
     minWidth: 0,
   },
@@ -3172,7 +3169,7 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     fontFamily: "Poppins_400Regular",
-    fontSize: 8,
+    fontSize: 12,
     color: "#0B0B0B",
   },
   refreshIconBtn: {
