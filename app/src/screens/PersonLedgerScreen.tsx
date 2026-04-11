@@ -28,6 +28,7 @@ import {
 import {
   getPersonLedger,
   type PersonLedger,
+  type PersonLedgerCategory,
   type PersonLedgerRow,
 } from "../services/peoples";
 import { listCategories, type Category } from "../services/categories";
@@ -37,6 +38,7 @@ import {
   bulkUpdateTransactions,
   getTransaction,
 } from "../services/transactions";
+import { groupLedgerRowsByYearMonth } from "../utils/ledgerGrouping";
 import { formatMoney2 } from "../utils/money";
 
 function parseMoney(s: string): number {
@@ -138,7 +140,6 @@ function LedgerRow({
       >
         {selected ? <Feather name="check" size={14} color="#FFFFFF" /> : null}
       </Pressable>
-      <Text style={styles.cellDate}>{row.txn_date}</Text>
       <Pressable
         onPress={onPressRow}
         style={({ pressed }) => [
@@ -146,23 +147,38 @@ function LedgerRow({
           pressed && styles.cellDescPressed,
         ]}
       >
-        {row.remark ? (
-          <Text style={styles.cellRemark} numberOfLines={2}>
-            {row.remark}
-          </Text>
-        ) : null}
-        <Text style={styles.cellDesc} numberOfLines={2}>
+        <Text style={styles.cellDateTop} numberOfLines={1}>
+          {row.txn_date}
+        </Text>
+        <Text style={styles.cellDesc} numberOfLines={3}>
           {row.description || "—"}
         </Text>
-        <Text style={styles.cellAccount} numberOfLines={1}>
-          {row.account_name}
-        </Text>
+        {row.remark ? (
+          <View style={styles.cellRemarkBox}>
+            <Text style={styles.cellRemarkText} numberOfLines={4}>
+              {row.remark}
+            </Text>
+          </View>
+        ) : null}
+        <View style={styles.cellMetaRow}>
+          <Text style={styles.cellAccount} numberOfLines={1}>
+            {row.account_name}
+          </Text>
+          {row.category_name ? (
+            <View style={styles.cellCategoryPill}>
+              <Text style={styles.cellCategoryPillText} numberOfLines={1}>
+                {row.category_name}
+              </Text>
+            </View>
+          ) : null}
+        </View>
       </Pressable>
       <Text
         style={[
           styles.cellMoney,
           isCredit ? styles.creditText : styles.debitText,
         ]}
+        numberOfLines={2}
       >
         {formatMoney2(isCredit ? row.credit : row.debit)}
       </Text>
@@ -180,6 +196,10 @@ export default function PersonLedgerScreen() {
   const [isLoading, setIsLoading] = React.useState(true);
   const [filterYear, setFilterYear] = React.useState("");
   const [filterMonth, setFilterMonth] = React.useState("");
+  /** null = all categories; "none" = uncategorized; else category id string */
+  const [categoryFilter, setCategoryFilter] = React.useState<
+    null | "none" | string
+  >(null);
   const [people, setPeople] = React.useState<People[]>([]);
   const [categories, setCategories] = React.useState<Category[]>([]);
   const [selectedTxnIds, setSelectedTxnIds] = React.useState<string[]>([]);
@@ -191,7 +211,7 @@ export default function PersonLedgerScreen() {
   });
 
   const loadLedger = React.useCallback(
-    async (yearStr: string, monthStr: string) => {
+    async (yearStr: string, monthStr: string, cat: null | "none" | string) => {
       setIsLoading(true);
       try {
         const y = yearStr.trim();
@@ -199,8 +219,20 @@ export default function PersonLedgerScreen() {
         const data = await getPersonLedger(personId, {
           ...(y ? { year: y } : {}),
           ...(m ? { month: m } : {}),
+          ...(cat === null
+            ? {}
+            : {
+                category: cat === "none" ? "none" : cat,
+              }),
         });
         setLedger(data);
+        if (data.category === "none") {
+          setCategoryFilter("none");
+        } else if (data.category !== null && data.category !== undefined) {
+          setCategoryFilter(String(data.category));
+        } else {
+          setCategoryFilter(null);
+        }
       } catch (err: any) {
         const message =
           err?.response?.data?.detail ??
@@ -216,7 +248,7 @@ export default function PersonLedgerScreen() {
   );
 
   React.useEffect(() => {
-    void loadLedger("", "");
+    void loadLedger("", "", null);
   }, [loadLedger]);
 
   React.useEffect(() => {
@@ -238,6 +270,10 @@ export default function PersonLedgerScreen() {
   }, []);
 
   const displayName = ledger?.person_name || nameFromRoute || "Person";
+  const ledgerByYearMonth = React.useMemo(
+    () => groupLedgerRowsByYearMonth(ledger?.transactions ?? []),
+    [ledger?.transactions],
+  );
   const creditNum = ledger ? parseMoney(ledger.total_credit) : 0;
   const debitNum = ledger ? parseMoney(ledger.total_debit) : 0;
   const totalFlow = creditNum + debitNum;
@@ -247,13 +283,26 @@ export default function PersonLedgerScreen() {
     totalFlow > 0 ? Math.round((debitNum / totalFlow) * 1000) / 10 : 0;
 
   function applyFilters() {
-    void loadLedger(filterYear, filterMonth);
+    void loadLedger(filterYear, filterMonth, categoryFilter);
   }
 
   async function clearFilters() {
     setFilterYear("");
     setFilterMonth("");
-    await loadLedger("", "");
+    setCategoryFilter(null);
+    await loadLedger("", "", null);
+  }
+
+  function setCategoryAndReload(next: null | "none" | string) {
+    setCategoryFilter(next);
+    void loadLedger(filterYear, filterMonth, next);
+  }
+
+  function categoryChipSelected(c: PersonLedgerCategory): boolean {
+    if (c.id === null || c.id === undefined) {
+      return categoryFilter === "none";
+    }
+    return categoryFilter === String(c.id);
   }
 
   const rowIds = React.useMemo(
@@ -285,7 +334,7 @@ export default function PersonLedgerScreen() {
   }
 
   async function reloadLedger() {
-    await loadLedger(filterYear, filterMonth);
+    await loadLedger(filterYear, filterMonth, categoryFilter);
   }
 
   async function onApplyBulkUpdate(patch: BulkUpdatePatch) {
@@ -385,7 +434,10 @@ export default function PersonLedgerScreen() {
         </Text>
         <Pressable
           onPress={openCreate}
-          style={({ pressed }) => [styles.topAddBtn, pressed && styles.topAddBtnPressed]}
+          style={({ pressed }) => [
+            styles.topAddBtn,
+            pressed && styles.topAddBtnPressed,
+          ]}
         >
           <Text style={styles.topAddBtnText}>Add</Text>
         </Pressable>
@@ -441,6 +493,64 @@ export default function PersonLedgerScreen() {
             <Text style={styles.clearBtnText}>Clear</Text>
           </Pressable>
         </View>
+        {!isLoading && ledger && ledger.categories.length > 0 ? (
+          <View style={styles.categoryFilterBlock}>
+            <Text style={styles.categoryFilterLabel}>Filter by category</Text>
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              contentContainerStyle={styles.categoryChipScroll}
+              keyboardShouldPersistTaps="handled"
+            >
+              <Pressable
+                onPress={() => setCategoryAndReload(null)}
+                style={({ pressed }) => [
+                  styles.categoryChip,
+                  categoryFilter === null && styles.categoryChipActive,
+                  pressed && styles.categoryChipPressed,
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.categoryChipText,
+                    categoryFilter === null && styles.categoryChipTextActive,
+                  ]}
+                >
+                  All
+                </Text>
+              </Pressable>
+              {ledger.categories.map((c) => {
+                const uncat =
+                  c.id === null || c.id === undefined || c.id === "";
+                const label = uncat ? "Uncategorized" : (c.name ?? "Category");
+                const selected = categoryChipSelected(c);
+                return (
+                  <Pressable
+                    key={uncat ? "uncat" : String(c.id)}
+                    onPress={() =>
+                      setCategoryAndReload(uncat ? "none" : String(c.id))
+                    }
+                    style={({ pressed }) => [
+                      styles.categoryChip,
+                      selected && styles.categoryChipActive,
+                      pressed && styles.categoryChipPressed,
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.categoryChipText,
+                        selected && styles.categoryChipTextActive,
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {label} ({c.transaction_count})
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </View>
+        ) : null}
       </View>
 
       <TransactionBulkSelectionBar
@@ -550,25 +660,32 @@ export default function PersonLedgerScreen() {
               </Pressable>
             ) : null}
           </View>
-          <View style={styles.tableHead}>
-            <Text style={[styles.th, styles.thSelect]}>Sel</Text>
-            <Text style={[styles.th, styles.thDate]}>Date</Text>
-            <Text style={[styles.th, styles.thDesc]}>Description</Text>
-            <Text style={[styles.th, styles.thAmt]}>Amount</Text>
-          </View>
           {ledger.transactions.length === 0 ? (
             <View style={styles.emptyTable}>
               <Text style={styles.muted}>No rows for this filter.</Text>
             </View>
           ) : (
-            ledger.transactions.map((row) => (
-              <LedgerRow
-                key={String(row.id)}
-                row={row}
-                selected={selectedTxnIds.includes(String(row.id))}
-                onToggleSelect={() => toggleTxnSelection(row.id)}
-                onPressRow={() => void openEditRow(row.id)}
-              />
+            ledgerByYearMonth.map((yg) => (
+              <View key={yg.year} style={styles.ledgerYearGroup}>
+                <Text style={styles.ledgerYearHeading}>{yg.year}</Text>
+                {yg.months.map((mg) => (
+                  <View
+                    key={`${yg.year}-${mg.month}`}
+                    style={styles.ledgerMonthGroup}
+                  >
+                    <Text style={styles.ledgerMonthHeading}>{mg.label}</Text>
+                    {mg.transactions.map((row) => (
+                      <LedgerRow
+                        key={String(row.id)}
+                        row={row}
+                        selected={selectedTxnIds.includes(String(row.id))}
+                        onToggleSelect={() => toggleTxnSelection(row.id)}
+                        onPressRow={() => void openEditRow(row.id)}
+                      />
+                    ))}
+                  </View>
+                ))}
+              </View>
             ))
           )}
         </ScrollView>
@@ -699,6 +816,41 @@ const styles = StyleSheet.create({
     fontFamily: "Poppins_600SemiBold",
     fontSize: 13,
   },
+  categoryFilterBlock: { marginTop: 10, gap: 8 },
+  categoryFilterLabel: {
+    color: "#6B6B6B",
+    fontFamily: "Poppins_600SemiBold",
+    fontSize: 11,
+  },
+  categoryChipScroll: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    paddingVertical: 4,
+    paddingRight: 8,
+  },
+  categoryChip: {
+    borderWidth: 1,
+    borderColor: "#E7E7E7",
+    borderRadius: 999,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    backgroundColor: "#FAFAFA",
+  },
+  categoryChipActive: {
+    borderColor: "#0B0B0B",
+    backgroundColor: "#0B0B0B",
+  },
+  categoryChipPressed: { opacity: 0.9 },
+  categoryChipText: {
+    color: "#0B0B0B",
+    fontFamily: "Poppins_600SemiBold",
+    fontSize: 12,
+    maxWidth: 180,
+  },
+  categoryChipTextActive: {
+    color: "#FFFFFF",
+  },
   center: { flex: 1, justifyContent: "center", alignItems: "center", gap: 10 },
   muted: { color: "#6B6B6B", fontFamily: "Poppins_400Regular" },
   scrollContent: { paddingBottom: 24, gap: 14 },
@@ -789,7 +941,7 @@ const styles = StyleSheet.create({
   selectAllBtnText: {
     color: "#0B0B0B",
     fontFamily: "Poppins_600SemiBold",
-    fontSize: 11,
+    fontSize: 12,
   },
   tableHead: {
     flexDirection: "row",
@@ -799,7 +951,7 @@ const styles = StyleSheet.create({
     gap: 8,
     alignItems: "center",
   },
-  th: { color: "#6B6B6B", fontFamily: "Poppins_600SemiBold", fontSize: 11 },
+  th: { color: "#6B6B6B", fontFamily: "Poppins_600SemiBold", fontSize: 12 },
   thSelect: { width: 36, textAlign: "center" },
   thDate: { width: 80 },
   thDesc: { flex: 1 },
@@ -828,39 +980,109 @@ const styles = StyleSheet.create({
     borderColor: "#0B0B0B",
     backgroundColor: "#0B0B0B",
   },
-  cellDate: {
-    width: 80,
-    color: "#0B0B0B",
+  cellDateTop: {
+    color: "#6B6B6B",
     fontFamily: "Poppins_600SemiBold",
     fontSize: 12,
+    lineHeight: 16,
+    marginBottom: 4,
   },
-  cellDescWrap: { flex: 1, gap: 4 },
+  cellDescWrap: { flex: 1, gap: 6 },
   cellDescPressed: { opacity: 0.88 },
-  cellRemark: {
-    color: "#5C5C5C",
-    fontFamily: "Poppins_500Medium",
-    fontSize: 11,
+  cellRemarkBox: {
+    marginTop: 2,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    backgroundColor: "#EFEFEF",
+    borderLeftWidth: 4,
+    borderLeftColor: "#0B0B0B",
+  },
+  cellRemarkLabel: {
+    color: "#6B6B6B",
+    fontFamily: "Poppins_600SemiBold",
+    fontSize: 10,
+    letterSpacing: 0.6,
+    textTransform: "uppercase",
+    marginBottom: 4,
+  },
+  cellRemarkText: {
+    color: "#2A2A2A",
+    fontFamily: "Poppins_600SemiBold",
+    fontSize: 13,
+    lineHeight: 19,
   },
   cellDesc: {
     color: "#0B0B0B",
-    fontFamily: "Poppins_400Regular",
-    fontSize: 12,
+    fontFamily: "Poppins_600SemiBold",
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  cellMetaRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 2,
   },
   cellAccount: {
-    color: "#6B6B6B",
-    fontFamily: "Poppins_400Regular",
-    fontSize: 11,
+    flex: 1,
+    minWidth: 0,
+    color: "#5C5C5C",
+    fontFamily: "Poppins_500Medium",
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  cellCategoryPill: {
+    flexShrink: 0,
+    paddingVertical: 5,
+    paddingHorizontal: 11,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: "#C9D4E8",
+    backgroundColor: "#F0F5FF",
+    maxWidth: "100%",
+  },
+  cellCategoryPillText: {
+    color: "#1E3A5F",
+    fontFamily: "Poppins_600SemiBold",
+    fontSize: 12,
+    lineHeight: 16,
   },
   cellMoney: {
-    width: 80,
+    width: 86,
     textAlign: "right",
     fontFamily: "Poppins_700Bold",
-    fontSize: 12,
+    fontSize: 14,
+    lineHeight: 18,
   },
   creditText: { color: "#2E7D5A" },
   debitText: { color: "#B83C3C" },
   emptyTable: {
     paddingVertical: 20,
     alignItems: "center",
+  },
+  ledgerYearGroup: {
+    marginBottom: 8,
+  },
+  ledgerYearHeading: {
+    color: "#0B0B0B",
+    fontFamily: "Poppins_800ExtraBold",
+    fontSize: 22,
+    marginTop: 4,
+    marginBottom: 4,
+  },
+  ledgerMonthGroup: {
+    marginBottom: 10,
+  },
+  ledgerMonthHeading: {
+    color: "#6B6B6B",
+    fontFamily: "Poppins_600SemiBold",
+    fontSize: 12,
+    paddingVertical: 6,
+    paddingHorizontal: 2,
+    borderBottomWidth: 1,
+    borderBottomColor: "#E7E7E7",
+    marginBottom: 4,
   },
 });

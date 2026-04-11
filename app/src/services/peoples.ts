@@ -71,6 +71,19 @@ export async function deletePeople(id: People["id"]): Promise<void> {
 export type PersonLedgerQuery = {
   year?: number | string;
   month?: number | string;
+  /** Omit or null = all; "none" = uncategorized; otherwise category id */
+  category?: number | string | "none" | null;
+  group_by_category?: boolean;
+};
+
+/** Distinct categories in the ledger period (before category filter), with totals. */
+export type PersonLedgerCategory = {
+  id: number | string | null;
+  name: string | null;
+  transaction_count: number;
+  total_credit: string;
+  total_debit: string;
+  net: string;
 };
 
 export type PersonLedgerRow = {
@@ -84,6 +97,8 @@ export type PersonLedgerRow = {
   type: "credit" | "debit";
   account: number | string;
   account_name: string;
+  category: number | string | null;
+  category_name: string | null;
 };
 
 export type PersonLedger = {
@@ -92,10 +107,13 @@ export type PersonLedger = {
   year: number | null;
   month: number | null;
   account: number | string | null;
+  /** Active category filter echoed from the API */
+  category: number | "none" | null;
   total_credit: string;
   total_debit: string;
   net: string;
   transaction_count: number;
+  categories: PersonLedgerCategory[];
   transactions: PersonLedgerRow[];
 };
 
@@ -104,6 +122,7 @@ function normalizeLedgerRow(raw: any): PersonLedgerRow {
   if (id === undefined || id === null) throw new Error("Ledger row missing id.");
   const type = raw?.type === "credit" ? "credit" : "debit";
   const remarkRaw = raw?.remark;
+  const catRaw = raw?.category ?? raw?.category_id ?? null;
   return {
     id,
     txn_date: String(raw?.txn_date ?? raw?.txnDate ?? ""),
@@ -118,21 +137,54 @@ function normalizeLedgerRow(raw: any): PersonLedgerRow {
     type,
     account: raw?.account ?? raw?.account_id ?? "",
     account_name: String(raw?.account_name ?? raw?.accountName ?? ""),
+    category: catRaw === undefined || catRaw === null || catRaw === "" ? null : catRaw,
+    category_name:
+      raw?.category_name === undefined || raw?.category_name === null
+        ? null
+        : String(raw.category_name),
+  };
+}
+
+function normalizeLedgerCategory(raw: any): PersonLedgerCategory {
+  const id = raw?.id ?? raw?.category_id ?? null;
+  return {
+    id: id === undefined || id === null || id === "" ? null : id,
+    name:
+      raw?.name === undefined || raw?.name === null
+        ? null
+        : String(raw.name),
+    transaction_count: typeof raw?.transaction_count === "number" ? raw.transaction_count : 0,
+    total_credit: String(raw?.total_credit ?? "0"),
+    total_debit: String(raw?.total_debit ?? "0"),
+    net: String(raw?.net ?? "0"),
   };
 }
 
 function normalizeLedger(raw: any): PersonLedger {
   const txs = Array.isArray(raw?.transactions) ? raw.transactions.map(normalizeLedgerRow) : [];
+  const catEcho = raw?.category;
+  let categoryEcho: PersonLedger["category"] = null;
+  if (catEcho === "none" || catEcho === null) {
+    categoryEcho = catEcho === "none" ? "none" : null;
+  } else if (catEcho !== undefined && catEcho !== "") {
+    categoryEcho = typeof catEcho === "number" ? catEcho : Number(catEcho);
+    if (!Number.isFinite(categoryEcho)) categoryEcho = null;
+  }
+  const cats = Array.isArray(raw?.categories)
+    ? raw.categories.map(normalizeLedgerCategory)
+    : [];
   return {
     person: raw?.person ?? raw?.person_id ?? "",
     person_name: String(raw?.person_name ?? raw?.personName ?? ""),
     year: raw?.year ?? null,
     month: raw?.month ?? null,
     account: raw?.account ?? null,
+    category: categoryEcho,
     total_credit: String(raw?.total_credit ?? "0"),
     total_debit: String(raw?.total_debit ?? "0"),
     net: String(raw?.net ?? "0"),
     transaction_count: typeof raw?.transaction_count === "number" ? raw.transaction_count : txs.length,
+    categories: cats,
     transactions: txs,
   };
 }
@@ -149,6 +201,15 @@ export async function getPersonLedger(
   }
   if (m !== undefined && m !== null && m !== "") {
     params.month = typeof m === "number" ? m : String(m).trim();
+  }
+  const cat = query.category;
+  if (cat === "none") {
+    params.category = "none";
+  } else if (cat !== undefined && cat !== null && cat !== "") {
+    params.category = typeof cat === "number" ? cat : String(cat).trim();
+  }
+  if (query.group_by_category) {
+    params.group_by_category = "true";
   }
   const res = await api.get(`/people/${id}/ledger/`, {
     params: Object.keys(params).length ? params : undefined,

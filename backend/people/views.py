@@ -2,12 +2,14 @@ from decimal import Decimal
 
 from django.db.models import Count, Sum
 from django.db.models.functions import Lower
+from category.models import Category
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.filters import SearchFilter
 from rest_framework.response import Response
 
+from transactions.ledger_grouping import group_ledger_rows_by_year_month
 from transactions.models import Transaction, get_person_balance
 from transactions.serializers import TransactionSerializer
 
@@ -56,6 +58,59 @@ def _money_str(d: Decimal) -> str:
     return format(d.quantize(Decimal("0.01")), "f")
 
 
+def _ledger_category_breakdown(qs_base, user):
+    """
+    Distinct categories in qs_base with counts and credit/debit totals.
+    Uncategorized rows use id/name null.
+    """
+    rows = (
+        qs_base.values("category_id")
+        .annotate(
+            transaction_count=Count("id"),
+            total_credit=Sum("credit"),
+            total_debit=Sum("debit"),
+        )
+    )
+    out = []
+    for row in rows:
+        cid = row["category_id"]
+        tc = row["total_credit"] or Decimal("0")
+        td = row["total_debit"] or Decimal("0")
+        name = None
+        if cid is not None:
+            cat = Category.objects.filter(pk=cid, user=user).only("name").first()
+            name = cat.name if cat else None
+        out.append(
+            {
+                "id": cid,
+                "name": name,
+                "transaction_count": row["transaction_count"],
+                "total_credit": _money_str(tc),
+                "total_debit": _money_str(td),
+                "net": _money_str(tc - td),
+            }
+        )
+    out.sort(key=lambda x: (x["name"] is None, (x["name"] or "").lower()))
+    return out
+
+
+def _ledger_txn_row_dict(t):
+    return {
+        "id": t.id,
+        "txn_date": t.txn_date,
+        "remark": t.remark,
+        "description": t.description,
+        "credit": str(t.credit),
+        "debit": str(t.debit),
+        "amount": str(t.credit if t.credit > 0 else t.debit),
+        "type": "credit" if t.credit > 0 else "debit",
+        "account": t.account_id,
+        "account_name": t.account.name,
+        "category": t.category_id,
+        "category_name": t.category.name if t.category_id else None,
+    }
+
+
 class PersonViewSet(BaseModelViewSet):
     serializer_class = PersonSerializer
     filter_backends = [DjangoFilterBackend, SearchFilter]
@@ -71,7 +126,14 @@ class PersonViewSet(BaseModelViewSet):
         Credit/debit ledger for this person across your transactions.
 
         Query: year, month, year_month=YYYY-MM, account=<account_id> (all optional)
+        Optional: category=<id> or category=none (uncategorized) to filter rows and totals.
+        Optional: group_by_category=true to include a transactions list under each entry in
+        categories (distinct categories for the period; still uses category filter for top-level
+        transactions and totals).
         Optional: include_entries=false to return totals only (no transaction lines).
+
+        Response includes ``by_year_month``: years (desc), each with months (desc) and
+        ``transactions`` lists (same rows as top-level ``transactions``, grouped).
         """
         person = self.get_object()
         qp = request.query_params
@@ -98,6 +160,28 @@ class PersonViewSet(BaseModelViewSet):
         if month_int is not None:
             qs = qs.filter(txn_date__month=month_int)
 
+        qs_base = qs
+        categories_breakdown = _ledger_category_breakdown(qs_base, request.user)
+
+        category_raw = qp.get("category")
+        category_filter_echo = None
+        if category_raw is not None and str(category_raw).strip() != "":
+            s = str(category_raw).strip().lower()
+            if s in ("none", "null", "uncategorized"):
+                qs = qs_base.filter(category__isnull=True)
+                category_filter_echo = "none"
+            else:
+                try:
+                    cid = int(category_raw)
+                except (TypeError, ValueError):
+                    raise ValidationError(
+                        {
+                            "category": 'Invalid. Use a category id, or "none" for uncategorized.',
+                        }
+                    )
+                qs = qs_base.filter(category_id=cid)
+                category_filter_echo = cid
+
         agg = qs.aggregate(
             total_credit=Sum("credit"),
             total_debit=Sum("debit"),
@@ -106,36 +190,49 @@ class PersonViewSet(BaseModelViewSet):
         tc = agg["total_credit"] or Decimal("0")
         td = agg["total_debit"] or Decimal("0")
 
+        group_by_category = str(qp.get("group_by_category", "")).lower() in (
+            "1",
+            "true",
+            "yes",
+        )
+
         payload = {
             "person": person.id,
             "person_name": person.name,
             "year": year_int,
             "month": month_int,
             "account": account_id_parsed,
+            "category": category_filter_echo,
             "total_credit": str(tc),
             "total_debit": str(td),
             "net": str(tc - td),
             "transaction_count": agg["txn_count"],
+            "categories": categories_breakdown,
         }
+
+        if group_by_category and include_entries:
+            for block in payload["categories"]:
+                cid = block["id"]
+                if cid is None:
+                    sub = qs_base.filter(category__isnull=True)
+                else:
+                    sub = qs_base.filter(category_id=cid)
+                block["transactions"] = [
+                    _ledger_txn_row_dict(t)
+                    for t in sub.select_related("account", "category").order_by(
+                        "-txn_date", "-id"
+                    )
+                ]
 
         if include_entries:
             payload["transactions"] = [
-                {
-                    "id": t.id,
-                    "txn_date": t.txn_date,
-                    "remark": t.remark,
-                    "description": t.description,
-                    "credit": str(t.credit),
-                    "debit": str(t.debit),
-                    "amount": str(t.credit if t.credit > 0 else t.debit),
-                    "type": "credit" if t.credit > 0 else "debit",
-                    "account": t.account_id,
-                    "account_name": t.account.name,
-                }
-                for t in qs.select_related("account").order_by("-txn_date", "-id")
+                _ledger_txn_row_dict(t)
+                for t in qs.select_related("account", "category").order_by("-txn_date", "-id")
             ]
+            payload["by_year_month"] = group_ledger_rows_by_year_month(payload["transactions"])
         else:
             payload["transactions"] = []
+            payload["by_year_month"] = []
 
         return Response(payload)
 

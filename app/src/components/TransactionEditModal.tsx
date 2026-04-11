@@ -604,21 +604,27 @@ export default function TransactionEditModal({
                 </Text>
               </Pressable>
             ) : null}
-            {peopleFiltered.map((p) => (
-              <Pressable
-                key={String(p.id)}
-                onPress={() => {
-                  setPersonId(p.id);
-                  setIsPersonPickerOpen(false);
-                }}
-                style={({ pressed }) => [
-                  styles.pickerRow,
-                  pressed && styles.pickerRowPressed,
-                ]}
-              >
-                <Text style={styles.pickerRowText}>{p.name}</Text>
-              </Pressable>
-            ))}
+            <View style={styles.pickerChipGrid}>
+              {peopleFiltered.map((p) => (
+                <Pressable
+                  key={String(p.id)}
+                  onPress={() => {
+                    setPersonId(p.id);
+                    setIsPersonPickerOpen(false);
+                  }}
+                  style={({ pressed }) => [
+                    styles.pickerChip,
+                    pressed && styles.pickerChipPressed,
+                  ]}
+                  accessibilityRole="button"
+                  accessibilityLabel={p.name}
+                >
+                  <Text style={styles.pickerChipText} numberOfLines={2}>
+                    {p.name}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
           </ScrollView>
         </View>
       </Modal>
@@ -690,21 +696,27 @@ export default function TransactionEditModal({
                 </Text>
               </Pressable>
             ) : null}
-            {categoriesFiltered.map((c) => (
-              <Pressable
-                key={String(c.id)}
-                onPress={() => {
-                  setCategoryId(c.id);
-                  setIsCategoryPickerOpen(false);
-                }}
-                style={({ pressed }) => [
-                  styles.pickerRow,
-                  pressed && styles.pickerRowPressed,
-                ]}
-              >
-                <Text style={styles.pickerRowText}>{c.name}</Text>
-              </Pressable>
-            ))}
+            <View style={styles.pickerChipGrid}>
+              {categoriesFiltered.map((c) => (
+                <Pressable
+                  key={String(c.id)}
+                  onPress={() => {
+                    setCategoryId(c.id);
+                    setIsCategoryPickerOpen(false);
+                  }}
+                  style={({ pressed }) => [
+                    styles.pickerChip,
+                    pressed && styles.pickerChipPressed,
+                  ]}
+                  accessibilityRole="button"
+                  accessibilityLabel={c.name}
+                >
+                  <Text style={styles.pickerChipText} numberOfLines={2}>
+                    {c.name}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
           </ScrollView>
         </View>
       </Modal>
@@ -857,6 +869,26 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
   },
   pickerCreateRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+  pickerChipGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    paddingTop: 2,
+  },
+  pickerChip: {
+    borderWidth: 1,
+    borderColor: "#E7E7E7",
+    borderRadius: 999,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    backgroundColor: "#FAFAFA",
+  },
+  pickerChipPressed: { backgroundColor: "#F5F5F5" },
+  pickerChipText: {
+    color: "#0B0B0B",
+    fontFamily: "Poppins_600SemiBold",
+    fontSize: 13,
+  },
   pickerRowPressed: { backgroundColor: "#F5F5F5" },
   pickerRowText: {
     color: "#0B0B0B",

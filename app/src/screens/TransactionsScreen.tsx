@@ -3153,7 +3153,7 @@ const styles = StyleSheet.create({
   },
   txnAmountWrap: {
     flexShrink: 0,
-    width: 58,
+    width: 110,
     flexDirection: "row",
     alignItems: "center",
     borderWidth: 1,

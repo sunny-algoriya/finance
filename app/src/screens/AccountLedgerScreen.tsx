@@ -37,6 +37,7 @@ import {
   bulkUpdateTransactions,
   getTransaction,
 } from "../services/transactions";
+import { groupLedgerRowsByYearMonth } from "../utils/ledgerGrouping";
 import { formatMoney2 } from "../utils/money";
 
 function parseMoney(s: string): number {
@@ -236,6 +237,10 @@ export default function AccountLedgerScreen() {
   }, []);
 
   const displayName = ledger?.account_name || nameFromRoute || "Account";
+  const ledgerByYearMonth = React.useMemo(
+    () => groupLedgerRowsByYearMonth(ledger?.transactions ?? []),
+    [ledger?.transactions],
+  );
   const creditNum = ledger ? parseMoney(ledger.total_credit) : 0;
   const debitNum = ledger ? parseMoney(ledger.total_debit) : 0;
   const totalFlow = creditNum + debitNum;
@@ -520,14 +525,27 @@ export default function AccountLedgerScreen() {
               <Text style={styles.muted}>No rows for this filter.</Text>
             </View>
           ) : (
-            ledger.transactions.map((row) => (
-              <LedgerRow
-                key={String(row.id)}
-                row={row}
-                selected={selectedTxnIds.includes(String(row.id))}
-                onToggleSelect={() => toggleTxnSelection(row.id)}
-                onPressRow={() => void openEditRow(row.id)}
-              />
+            ledgerByYearMonth.map((yg) => (
+              <View key={yg.year} style={styles.ledgerYearGroup}>
+                <Text style={styles.ledgerYearHeading}>{yg.year}</Text>
+                {yg.months.map((mg) => (
+                  <View
+                    key={`${yg.year}-${mg.month}`}
+                    style={styles.ledgerMonthGroup}
+                  >
+                    <Text style={styles.ledgerMonthHeading}>{mg.label}</Text>
+                    {mg.transactions.map((row) => (
+                      <LedgerRow
+                        key={String(row.id)}
+                        row={row}
+                        selected={selectedTxnIds.includes(String(row.id))}
+                        onToggleSelect={() => toggleTxnSelection(row.id)}
+                        onPressRow={() => void openEditRow(row.id)}
+                      />
+                    ))}
+                  </View>
+                ))}
+              </View>
             ))
           )}
         </ScrollView>
@@ -792,5 +810,28 @@ const styles = StyleSheet.create({
   emptyTable: {
     paddingVertical: 20,
     alignItems: "center",
+  },
+  ledgerYearGroup: {
+    marginBottom: 8,
+  },
+  ledgerYearHeading: {
+    color: "#0B0B0B",
+    fontFamily: "Poppins_800ExtraBold",
+    fontSize: 22,
+    marginTop: 4,
+    marginBottom: 4,
+  },
+  ledgerMonthGroup: {
+    marginBottom: 10,
+  },
+  ledgerMonthHeading: {
+    color: "#6B6B6B",
+    fontFamily: "Poppins_600SemiBold",
+    fontSize: 12,
+    paddingVertical: 6,
+    paddingHorizontal: 2,
+    borderBottomWidth: 1,
+    borderBottomColor: "#E7E7E7",
+    marginBottom: 4,
   },
 });

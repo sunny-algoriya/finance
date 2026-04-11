@@ -664,18 +664,27 @@ export function TransactionFormModal({
                   </Text>
                 </Pressable>
               ) : null}
-              {peopleFilteredForTxn.map((p) => (
-                <Pressable
-                  key={String(p.id)}
-                  onPress={() => {
-                    setPersonId(p.id);
-                    setIsPersonPickerOpen(false);
-                  }}
-                  style={({ pressed }) => [styles.pickerRow, pressed && styles.pickerRowPressed]}
-                >
-                  <Text style={styles.pickerRowText}>{p.name}</Text>
-                </Pressable>
-              ))}
+              <View style={styles.pickerChipGrid}>
+                {peopleFilteredForTxn.map((p) => (
+                  <Pressable
+                    key={String(p.id)}
+                    onPress={() => {
+                      setPersonId(p.id);
+                      setIsPersonPickerOpen(false);
+                    }}
+                    style={({ pressed }) => [
+                      styles.pickerChip,
+                      pressed && styles.pickerChipPressed,
+                    ]}
+                    accessibilityRole="button"
+                    accessibilityLabel={p.name}
+                  >
+                    <Text style={styles.pickerChipText} numberOfLines={2}>
+                      {p.name}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
             </ScrollView>
           </SafeAreaView>
         </View>
@@ -756,18 +765,27 @@ export function TransactionFormModal({
                   </Text>
                 </Pressable>
               ) : null}
-              {categoriesFiltered.map((c) => (
-                <Pressable
-                  key={String(c.id)}
-                  onPress={() => {
-                    setCategoryId(c.id);
-                    setIsCategoryPickerOpen(false);
-                  }}
-                  style={({ pressed }) => [styles.pickerRow, pressed && styles.pickerRowPressed]}
-                >
-                  <Text style={styles.pickerRowText}>{c.name}</Text>
-                </Pressable>
-              ))}
+              <View style={styles.pickerChipGrid}>
+                {categoriesFiltered.map((c) => (
+                  <Pressable
+                    key={String(c.id)}
+                    onPress={() => {
+                      setCategoryId(c.id);
+                      setIsCategoryPickerOpen(false);
+                    }}
+                    style={({ pressed }) => [
+                      styles.pickerChip,
+                      pressed && styles.pickerChipPressed,
+                    ]}
+                    accessibilityRole="button"
+                    accessibilityLabel={c.name}
+                  >
+                    <Text style={styles.pickerChipText} numberOfLines={2}>
+                      {c.name}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
             </ScrollView>
           </SafeAreaView>
         </View>

@@ -4,6 +4,7 @@ from django.db.models import Count, Sum
 from rest_framework.decorators import action
 from rest_framework.response import Response
 
+from transactions.ledger_grouping import group_ledger_rows_by_year_month
 from transactions.models import Transaction
 from transactions.query_helpers import parse_year_month_query_params
 
@@ -25,6 +26,9 @@ class AccountViewSet(BaseModelViewSet):
 
         Query: year, month, year_month=YYYY-MM (optional filters on txn_date)
         Optional: include_entries=false for totals only (no transaction lines).
+
+        Response includes ``by_year_month``: years (desc), months (desc), each with
+        ``transactions`` for that month (same rows as flat ``transactions``, grouped).
         """
         account = self.get_object()
         qp = request.query_params
@@ -74,10 +78,15 @@ class AccountViewSet(BaseModelViewSet):
                     "amount": str(t.credit if t.credit > 0 else t.debit),
                     "type": "credit" if t.credit > 0 else "debit",
                     "person": t.person_id,
+                    "person_name": t.person.name if t.person_id else "",
+                    "account": t.account_id,
+                    "account_name": account.name,
                 }
-                for t in qs.select_related("person").order_by("-txn_date", "-id")
+                for t in qs.select_related("person", "account").order_by("-txn_date", "-id")
             ]
+            payload["by_year_month"] = group_ledger_rows_by_year_month(payload["transactions"])
         else:
             payload["transactions"] = []
+            payload["by_year_month"] = []
 
         return Response(payload)

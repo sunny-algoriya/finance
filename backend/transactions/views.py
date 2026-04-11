@@ -93,7 +93,9 @@ class TransactionViewSet(BaseModelViewSet):
         qs = Transaction.objects.filter(user=self.request.user)
 
         qp = self.request.query_params
-        qs = _filter_by_hidden_visibility(qs, qp)
+        # List defaults to visible-only; detail/update/delete must still resolve hidden rows by pk.
+        if self.action not in ("retrieve", "update", "partial_update", "destroy"):
+            qs = _filter_by_hidden_visibility(qs, qp)
 
         # Description substring (not remark). e.g. ?description=lunch
         # - Pure number (?description=600): match description contains "600" OR that amount.

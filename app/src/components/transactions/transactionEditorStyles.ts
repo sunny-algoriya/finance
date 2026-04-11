@@ -202,6 +202,27 @@ export const txnEditorStyles = StyleSheet.create({
     alignItems: "center",
     gap: 8,
   },
+  /** Person list in TransactionFormModal: flex-wrap chips instead of one column. */
+  pickerChipGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    paddingTop: 2,
+  },
+  pickerChip: {
+    borderWidth: 1,
+    borderColor: "#E7E7E7",
+    borderRadius: 999,
+    paddingVertical: 10,
+    paddingHorizontal: 14,
+    backgroundColor: "#FAFAFA",
+  },
+  pickerChipPressed: { backgroundColor: "#F5F5F5" },
+  pickerChipText: {
+    color: "#0B0B0B",
+    fontFamily: "Poppins_600SemiBold",
+    fontSize: 13,
+  },
   pickerRowPressed: { backgroundColor: "#F5F5F5" },
   pickerRowText: {
     color: "#0B0B0B",
