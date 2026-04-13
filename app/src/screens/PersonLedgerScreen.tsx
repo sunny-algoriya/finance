@@ -9,6 +9,8 @@ import {
   TextInput,
   View,
 } from "react-native";
+import * as FileSystem from "expo-file-system/legacy";
+import * as Sharing from "expo-sharing";
 import { Feather } from "@expo/vector-icons";
 import { useNavigation, useRoute } from "@react-navigation/native";
 import type { RouteProp } from "@react-navigation/native";
@@ -26,6 +28,7 @@ import {
   IS_WEB,
 } from "../components/transactions";
 import {
+  downloadPersonLedgerExcel,
   downloadPersonLedgerPdf,
   getPersonLedger,
   type PersonLedger,
@@ -51,6 +54,25 @@ function parseMoney(s: string): number {
 function polarToXY(cx: number, cy: number, r: number, angleDeg: number) {
   const rad = (angleDeg * Math.PI) / 180;
   return { x: cx + r * Math.cos(rad), y: cy + r * Math.sin(rad) };
+}
+
+function bytesToBase64(bytes: Uint8Array): string {
+  const alphabet =
+    "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  let output = "";
+  for (let i = 0; i < bytes.length; i += 3) {
+    const remain = bytes.length - i;
+    const a = bytes[i];
+    const b = remain > 1 ? bytes[i + 1] : 0;
+    const c = remain > 2 ? bytes[i + 2] : 0;
+
+    const triple = (a << 16) | (b << 8) | c;
+    output += alphabet[(triple >> 18) & 0x3f];
+    output += alphabet[(triple >> 12) & 0x3f];
+    output += remain > 1 ? alphabet[(triple >> 6) & 0x3f] : "=";
+    output += remain > 2 ? alphabet[triple & 0x3f] : "=";
+  }
+  return output;
 }
 
 function CreditDebitPie({
@@ -351,26 +373,96 @@ export default function PersonLedgerScreen() {
             }),
       });
 
-      if (!IS_WEB) {
-        Alert.alert("PDF Ready", "PDF export is currently supported on web download.");
-        return;
-      }
-
-      const blob = new Blob([data], { type: "application/pdf" });
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = filename || "person-ledger.pdf";
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
+      await saveAndShareBinaryFile({
+        data,
+        filename: filename || "person-ledger.pdf",
+        mimeType: "application/pdf",
+        webFallbackName: "person-ledger.pdf",
+        unavailableShareTitle: "PDF Saved",
+      });
     } catch (err: any) {
       const message =
         err?.response?.data?.detail ??
         err?.response?.data?.message ??
         err?.message ??
         "Failed to export PDF.";
+      Alert.alert("Error", String(message));
+    }
+  }
+
+  async function saveAndShareBinaryFile(params: {
+    data: ArrayBuffer;
+    filename: string;
+    mimeType: string;
+    webFallbackName: string;
+    unavailableShareTitle: string;
+  }) {
+    const {
+      data,
+      filename,
+      mimeType,
+      webFallbackName,
+      unavailableShareTitle,
+    } = params;
+
+    if (IS_WEB) {
+      const blob = new Blob([data], { type: mimeType });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename || webFallbackName;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+      return;
+    }
+
+    const bytes = new Uint8Array(data);
+    const base64 = bytesToBase64(bytes);
+    const safeName = (filename || webFallbackName).replace(/[^\w.-]/g, "_");
+    const fileUri = `${FileSystem.cacheDirectory}${safeName}`;
+
+    await FileSystem.writeAsStringAsync(fileUri, base64, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+
+    const canShare = await Sharing.isAvailableAsync();
+    if (!canShare) {
+      Alert.alert(unavailableShareTitle, `File saved at:\n${fileUri}`);
+      return;
+    }
+    await Sharing.shareAsync(fileUri, {
+      mimeType,
+    });
+  }
+
+  async function exportExcel() {
+    try {
+      const { data, filename } = await downloadPersonLedgerExcel(personId, {
+        ...(filterYear.trim() ? { year: filterYear.trim() } : {}),
+        ...(filterMonth.trim() ? { month: filterMonth.trim() } : {}),
+        ...(categoryFilter === null
+          ? {}
+          : {
+              category: categoryFilter,
+            }),
+      });
+
+      await saveAndShareBinaryFile({
+        data,
+        filename: filename || "person-ledger.xlsx",
+        mimeType:
+          "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        webFallbackName: "person-ledger.xlsx",
+        unavailableShareTitle: "Excel Saved",
+      });
+    } catch (err: any) {
+      const message =
+        err?.response?.data?.detail ??
+        err?.response?.data?.message ??
+        err?.message ??
+        "Failed to export Excel.";
       Alert.alert("Error", String(message));
     }
   }
@@ -474,6 +566,15 @@ export default function PersonLedgerScreen() {
           Ledger
         </Text>
         <View style={styles.topRightActions}>
+          <Pressable
+            onPress={() => void exportExcel()}
+            style={({ pressed }) => [
+              styles.topExcelBtn,
+              pressed && styles.topExcelBtnPressed,
+            ]}
+          >
+            <Text style={styles.topExcelBtnText}>Excel</Text>
+          </Pressable>
           <Pressable
             onPress={() => void exportPdf()}
             style={({ pressed }) => [
@@ -829,6 +930,22 @@ const styles = StyleSheet.create({
   },
   topPdfBtnPressed: { opacity: 0.88 },
   topPdfBtnText: {
+    color: "#FFFFFF",
+    fontFamily: "Poppins_700Bold",
+    fontSize: 13,
+  },
+  topExcelBtn: {
+    minWidth: 56,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#2E7D5A",
+    backgroundColor: "#2E7D5A",
+    alignItems: "center",
+  },
+  topExcelBtnPressed: { opacity: 0.88 },
+  topExcelBtnText: {
     color: "#FFFFFF",
     fontFamily: "Poppins_700Bold",
     fontSize: 13,

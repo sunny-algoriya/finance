@@ -5,6 +5,7 @@ from django.db.models import Count, F, Sum
 from django.db.models.functions import Lower
 from category.models import Category
 from django_filters.rest_framework import DjangoFilterBackend
+from openpyxl import Workbook
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 from rest_framework.decorators import action
@@ -305,6 +306,70 @@ class PersonViewSet(BaseModelViewSet):
                 write_line("", step=6)
 
         p.save()
+        return response
+
+    @action(detail=True, methods=["get"], url_path="ledger-xlsx")
+    def ledger_xlsx(self, request, pk=None):
+        person = self.get_object()
+        payload = self._build_ledger_payload(request, person)
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Ledger"
+
+        ws.append(["Person Ledger Report"])
+        ws.append(["Person", payload["person_name"]])
+        ws.append(
+            [
+                "Filters",
+                f"year={payload['year'] or 'all'}, month={payload['month'] or 'all'}, "
+                f"account={payload['account'] or 'all'}, category={payload['category'] or 'all'}",
+            ]
+        )
+        ws.append([])
+        ws.append(["Total credit", payload["total_credit"]])
+        ws.append(["Total debit", payload["total_debit"]])
+        ws.append(["Net", payload["net"]])
+        ws.append(["Gross total", payload["gross_total"]])
+        ws.append(["Transaction count", payload["transaction_count"]])
+        ws.append([])
+        ws.append(
+            [
+                "Txn Date",
+                "Type",
+                "Credit",
+                "Debit",
+                "Amount",
+                "Account",
+                "Category",
+                "Description",
+                "Remark",
+            ]
+        )
+
+        for row in payload.get("transactions", []):
+            ws.append(
+                [
+                    str(row.get("txn_date") or ""),
+                    str(row.get("type") or ""),
+                    str(row.get("credit") or "0"),
+                    str(row.get("debit") or "0"),
+                    str(row.get("amount") or "0"),
+                    str(row.get("account_name") or ""),
+                    str(row.get("category_name") or "Uncategorized"),
+                    str(row.get("description") or ""),
+                    str(row.get("remark") or ""),
+                ]
+            )
+
+        response = HttpResponse(
+            content_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        )
+        safe_name = "".join(ch if ch.isalnum() else "_" for ch in person.name).strip("_")
+        if not safe_name:
+            safe_name = f"person_{person.id}"
+        response["Content-Disposition"] = f'attachment; filename="ledger_{safe_name}.xlsx"'
+        wb.save(response)
         return response
 
     @action(detail=True, methods=["get"], url_path="loan-report")
