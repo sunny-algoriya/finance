@@ -152,7 +152,7 @@ class TransactionViewSet(BaseModelViewSet):
             or qp.get("filter[categories]")
         )
         category_raw = qp.get("category")
-        type_raw = qp.get("type")
+        type_raw = qp.get("type") or qp.get("debit_credit")
         txn_type_raw = qp.get("txn_type")
 
         if account_id is not None:

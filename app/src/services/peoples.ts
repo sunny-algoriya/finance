@@ -98,6 +98,8 @@ export type PersonLedgerQuery = {
   month?: number | string;
   /** Omit or null = all; "none" = uncategorized; otherwise category id */
   category?: number | string | "none" | null;
+  /** Omit/null = all; filter ledger rows by entry side. */
+  type?: "credit" | "debit" | "all" | null;
   group_by_category?: boolean;
 };
 
@@ -134,6 +136,7 @@ export type PersonLedger = {
   account: number | string | null;
   /** Active category filter echoed from the API */
   category: number | "none" | null;
+  type: "credit" | "debit" | "all" | null;
   total_credit: string;
   total_debit: string;
   net: string;
@@ -219,6 +222,10 @@ function normalizeLedger(raw: any): PersonLedger {
     month: raw?.month ?? null,
     account: raw?.account ?? null,
     category: categoryEcho,
+    type:
+      raw?.type === "credit" || raw?.type === "debit" || raw?.type === "all"
+        ? raw.type
+        : null,
     total_credit: tcStr,
     total_debit: tdStr,
     net: String(raw?.net ?? "0"),
@@ -251,6 +258,9 @@ export async function getPersonLedger(
   if (query.group_by_category) {
     params.group_by_category = "true";
   }
+  if (query.type && query.type !== "all") {
+    params.type = query.type;
+  }
   const res = await api.get(`/people/${id}/ledger/`, {
     params: Object.keys(params).length ? params : undefined,
   });
@@ -278,6 +288,9 @@ export async function downloadPersonLedgerPdf(
   }
   if (query.group_by_category) {
     params.group_by_category = "true";
+  }
+  if (query.type && query.type !== "all") {
+    params.type = query.type;
   }
 
   const res = await api.get(`/people/${id}/ledger-pdf/`, {
@@ -311,6 +324,9 @@ export async function downloadPersonLedgerExcel(
   }
   if (query.group_by_category) {
     params.group_by_category = "true";
+  }
+  if (query.type && query.type !== "all") {
+    params.type = query.type;
   }
 
   const res = await api.get(`/people/${id}/ledger-xlsx/`, {

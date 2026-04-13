@@ -170,6 +170,24 @@ class PersonViewSet(BaseModelViewSet):
                 qs = qs_base.filter(category_id=cid)
                 category_filter_echo = cid
 
+        entry_type_raw = (qp.get("type") or qp.get("debit_credit") or "").strip().lower()
+        type_filter_echo = None
+        if entry_type_raw:
+            if entry_type_raw in {"all", "both", "any"}:
+                type_filter_echo = "all"
+            elif entry_type_raw in {"credit", "crdit"}:
+                qs = qs.filter(credit__gt=0)
+                type_filter_echo = "credit"
+            elif entry_type_raw == "debit":
+                qs = qs.filter(debit__gt=0)
+                type_filter_echo = "debit"
+            else:
+                raise ValidationError(
+                    {
+                        "type": 'Invalid type. Use "credit", "debit", or "all".',
+                    }
+                )
+
         agg = qs.aggregate(
             total_credit=Sum("credit"),
             total_debit=Sum("debit"),
@@ -188,6 +206,7 @@ class PersonViewSet(BaseModelViewSet):
             "month": month_int,
             "account": account_id_parsed,
             "category": category_filter_echo,
+            "type": type_filter_echo,
             "total_credit": str(tc),
             "total_debit": str(td),
             "net": str(tc - td),

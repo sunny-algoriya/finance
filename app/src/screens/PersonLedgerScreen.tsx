@@ -220,6 +220,9 @@ export default function PersonLedgerScreen() {
   const [isLoading, setIsLoading] = React.useState(true);
   const [filterYear, setFilterYear] = React.useState("");
   const [filterMonth, setFilterMonth] = React.useState("");
+  const [entryTypeFilter, setEntryTypeFilter] = React.useState<
+    "all" | "credit" | "debit"
+  >("all");
   /** null = all categories; "none" = uncategorized; else category id string */
   const [categoryFilter, setCategoryFilter] = React.useState<
     null | "none" | string
@@ -235,7 +238,12 @@ export default function PersonLedgerScreen() {
   });
 
   const loadLedger = React.useCallback(
-    async (yearStr: string, monthStr: string, cat: null | "none" | string) => {
+    async (
+      yearStr: string,
+      monthStr: string,
+      cat: null | "none" | string,
+      side: "all" | "credit" | "debit" = entryTypeFilter,
+    ) => {
       setIsLoading(true);
       try {
         const y = yearStr.trim();
@@ -243,6 +251,7 @@ export default function PersonLedgerScreen() {
         const data = await getPersonLedger(personId, {
           ...(y ? { year: y } : {}),
           ...(m ? { month: m } : {}),
+          ...(side !== "all" ? { type: side } : {}),
           ...(cat === null
             ? {}
             : {
@@ -268,7 +277,7 @@ export default function PersonLedgerScreen() {
         setIsLoading(false);
       }
     },
-    [personId],
+    [personId, entryTypeFilter],
   );
 
   React.useEffect(() => {
@@ -307,19 +316,25 @@ export default function PersonLedgerScreen() {
     totalFlow > 0 ? Math.round((debitNum / totalFlow) * 1000) / 10 : 0;
 
   function applyFilters() {
-    void loadLedger(filterYear, filterMonth, categoryFilter);
+    void loadLedger(filterYear, filterMonth, categoryFilter, entryTypeFilter);
   }
 
   async function clearFilters() {
     setFilterYear("");
     setFilterMonth("");
+    setEntryTypeFilter("all");
     setCategoryFilter(null);
-    await loadLedger("", "", null);
+    await loadLedger("", "", null, "all");
   }
 
   function setCategoryAndReload(next: null | "none" | string) {
     setCategoryFilter(next);
-    void loadLedger(filterYear, filterMonth, next);
+    void loadLedger(filterYear, filterMonth, next, entryTypeFilter);
+  }
+
+  function setEntryTypeAndReload(next: "all" | "credit" | "debit") {
+    setEntryTypeFilter(next);
+    void loadLedger(filterYear, filterMonth, categoryFilter, next);
   }
 
   function categoryChipSelected(c: PersonLedgerCategory): boolean {
@@ -358,7 +373,7 @@ export default function PersonLedgerScreen() {
   }
 
   async function reloadLedger() {
-    await loadLedger(filterYear, filterMonth, categoryFilter);
+    await loadLedger(filterYear, filterMonth, categoryFilter, entryTypeFilter);
   }
 
   async function exportPdf() {
@@ -366,6 +381,7 @@ export default function PersonLedgerScreen() {
       const { data, filename } = await downloadPersonLedgerPdf(personId, {
         ...(filterYear.trim() ? { year: filterYear.trim() } : {}),
         ...(filterMonth.trim() ? { month: filterMonth.trim() } : {}),
+        ...(entryTypeFilter !== "all" ? { type: entryTypeFilter } : {}),
         ...(categoryFilter === null
           ? {}
           : {
@@ -397,13 +413,8 @@ export default function PersonLedgerScreen() {
     webFallbackName: string;
     unavailableShareTitle: string;
   }) {
-    const {
-      data,
-      filename,
-      mimeType,
-      webFallbackName,
-      unavailableShareTitle,
-    } = params;
+    const { data, filename, mimeType, webFallbackName, unavailableShareTitle } =
+      params;
 
     if (IS_WEB) {
       const blob = new Blob([data], { type: mimeType });
@@ -442,6 +453,7 @@ export default function PersonLedgerScreen() {
       const { data, filename } = await downloadPersonLedgerExcel(personId, {
         ...(filterYear.trim() ? { year: filterYear.trim() } : {}),
         ...(filterMonth.trim() ? { month: filterMonth.trim() } : {}),
+        ...(entryTypeFilter !== "all" ? { type: entryTypeFilter } : {}),
         ...(categoryFilter === null
           ? {}
           : {
@@ -721,37 +733,56 @@ export default function PersonLedgerScreen() {
         </View>
       ) : ledger ? (
         <ScrollView contentContainerStyle={styles.scrollContent}>
-          <View style={styles.summaryCard}>
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Total (credit + debit)</Text>
-              <Text style={[styles.summaryValue, styles.summaryGross]}>
-                {formatMoney2(ledger.gross_total)}
-              </Text>
+          <View style={styles.creditDebitNetBox}>
+            <View style={styles.creditDebitNetHeader}>
+              <Text style={styles.creditDebitNetTitle}>Credit & debit</Text>
+              {entryTypeFilter !== "all" ? (
+                <Pressable
+                  onPress={() => setEntryTypeAndReload("all")}
+                  style={({ pressed }) => [
+                    styles.creditDebitNetClearBtn,
+                    pressed && styles.creditDebitNetClearBtnPressed,
+                  ]}
+                >
+                  <Text style={styles.creditDebitNetClearText}>Show all</Text>
+                </Pressable>
+              ) : null}
             </View>
-            <View style={styles.summaryDivider} />
-            <View style={styles.summaryRow}>
+            <Pressable
+              onPress={() => setEntryTypeAndReload("credit")}
+              accessibilityRole="button"
+              accessibilityState={{ selected: entryTypeFilter === "credit" }}
+              style={({ pressed }) => [
+                styles.creditDebitNetRowBtn,
+                entryTypeFilter === "credit" && styles.creditDebitNetRowBtnCreditOn,
+                pressed && styles.creditDebitNetRowBtnPressed,
+              ]}
+            >
               <Text style={styles.summaryLabel}>Total credit</Text>
               <Text style={[styles.summaryValue, styles.creditText]}>
                 {formatMoney2(ledger.total_credit)}
               </Text>
-            </View>
-            <View style={styles.summaryRow}>
+            </Pressable>
+            <View style={styles.creditDebitNetDivider} />
+            <Pressable
+              onPress={() => setEntryTypeAndReload("debit")}
+              accessibilityRole="button"
+              accessibilityState={{ selected: entryTypeFilter === "debit" }}
+              style={({ pressed }) => [
+                styles.creditDebitNetRowBtn,
+                entryTypeFilter === "debit" && styles.creditDebitNetRowBtnDebitOn,
+                pressed && styles.creditDebitNetRowBtnPressed,
+              ]}
+            >
               <Text style={styles.summaryLabel}>Total debit</Text>
               <Text style={[styles.summaryValue, styles.debitText]}>
                 {formatMoney2(ledger.total_debit)}
               </Text>
-            </View>
-            <View style={styles.summaryRow}>
+            </Pressable>
+            <View style={styles.creditDebitNetDivider} />
+            <View style={styles.creditDebitNetRowNet}>
               <Text style={styles.summaryLabel}>Net</Text>
-              <Text style={styles.summaryValue}>
-                {formatMoney2(ledger.net)}
-              </Text>
-            </View>
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Transactions</Text>
-              <Text style={styles.summaryValue}>
-                {ledger.transaction_count}
-              </Text>
+              <Text style={styles.summaryValue}>{formatMoney2(ledger.net)}</Text>
             </View>
           </View>
 
@@ -1065,26 +1096,69 @@ const styles = StyleSheet.create({
   center: { flex: 1, justifyContent: "center", alignItems: "center", gap: 10 },
   muted: { color: "#6B6B6B", fontFamily: "Poppins_400Regular" },
   scrollContent: { paddingBottom: 24, gap: 14 },
-  summaryCard: {
+  creditDebitNetBox: {
     borderWidth: 1,
-    borderColor: "#E7E7E7",
+    borderColor: "#0B0B0B",
     borderRadius: 16,
-    padding: 14,
+    overflow: "hidden",
+    backgroundColor: "#FFFFFF",
+  },
+  creditDebitNetHeader: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    paddingHorizontal: 14,
+    paddingTop: 12,
+    paddingBottom: 8,
     gap: 8,
   },
-  summaryRow: {
+  creditDebitNetTitle: {
+    color: "#0B0B0B",
+    fontFamily: "Poppins_700Bold",
+    fontSize: 13,
+    letterSpacing: 0.3,
+  },
+  creditDebitNetClearBtn: {
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+  },
+  creditDebitNetClearBtnPressed: { opacity: 0.75 },
+  creditDebitNetClearText: {
+    color: "#2F4F8C",
+    fontFamily: "Poppins_600SemiBold",
+    fontSize: 12,
+  },
+  creditDebitNetRowBtn: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    backgroundColor: "#FAFAFA",
   },
-  summaryDivider: {
+  creditDebitNetRowBtnCreditOn: {
+    backgroundColor: "#E9F5EE",
+    borderLeftWidth: 4,
+    borderLeftColor: "#2E7D5A",
+  },
+  creditDebitNetRowBtnDebitOn: {
+    backgroundColor: "#FDF0F0",
+    borderLeftWidth: 4,
+    borderLeftColor: "#B83C3C",
+  },
+  creditDebitNetRowBtnPressed: { opacity: 0.88 },
+  creditDebitNetDivider: {
     height: StyleSheet.hairlineWidth,
     backgroundColor: "#E7E7E7",
-    marginVertical: 4,
+    marginLeft: 14,
   },
-  summaryGross: {
-    fontSize: 16,
-    fontFamily: "Poppins_800ExtraBold",
+  creditDebitNetRowNet: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    backgroundColor: "#FFFFFF",
   },
   summaryLabel: {
     color: "#6B6B6B",
