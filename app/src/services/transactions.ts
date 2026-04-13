@@ -1,16 +1,13 @@
 import { api } from "./api";
 
-export const TRANSACTION_TXN_TYPES = [
-  "income",
-  "expense",
-  "transfer",
-  "loan_given",
-  "loan_taken",
-  "repayment_in",
-  "repayment_out",
-] as const;
+export const TRANSACTION_TXN_TYPES = ["income", "expense", "transfer"] as const;
 
 export type TransactionTxnType = (typeof TRANSACTION_TXN_TYPES)[number];
+
+/** Per-person split (nullable when not tracking person-to-person flow). */
+export const TRANSACTION_PERSONAL_TYPES = ["gave", "got", "settle"] as const;
+
+export type TransactionPersonalType = (typeof TRANSACTION_PERSONAL_TYPES)[number];
 
 export type Transaction = {
   id: number | string;
@@ -24,6 +21,7 @@ export type Transaction = {
   amount: string; // keep as string for exactness
   type: "credit" | "debit";
   txn_type: TransactionTxnType;
+  personal_type: TransactionPersonalType | null;
   hidden: boolean;
 };
 
@@ -38,6 +36,7 @@ export type TransactionCreateInput = {
   amount: string | number;
   type: Transaction["type"];
   txn_type: Transaction["txn_type"];
+  personal_type?: Transaction["personal_type"];
 };
 
 export type TransactionUpdateInput = Partial<TransactionCreateInput> & {
@@ -96,6 +95,12 @@ function normalizeTxn(raw: any): Transaction {
   const txn_type = TRANSACTION_TXN_TYPES.includes(txn_type_raw as TransactionTxnType)
     ? (txn_type_raw as TransactionTxnType)
     : "expense";
+  const ptRaw = raw?.personal_type ?? raw?.personalType ?? null;
+  const personal_type =
+    ptRaw != null &&
+    TRANSACTION_PERSONAL_TYPES.includes(String(ptRaw) as TransactionPersonalType)
+      ? (String(ptRaw) as TransactionPersonalType)
+      : null;
   const hidden = Boolean(raw?.hidden);
 
   if (id === undefined || id === null) throw new Error("Transaction missing id.");
@@ -115,6 +120,7 @@ function normalizeTxn(raw: any): Transaction {
     amount,
     type,
     txn_type,
+    personal_type,
     hidden,
   };
 }
@@ -139,6 +145,13 @@ export type TransactionListParams = {
   amount_max?: string | number;
   account?: string | number | null;
   person?: string | number | null;
+  /** Category id, or `"none"` for transactions with no category. Ignored if `categories` is set. */
+  category?: string | number | "none" | null;
+  /**
+   * Multiple categories (OR): category ids and/or `"none"` for uncategorized.
+   * Sent as `categories=none,12,15`.
+   */
+  categories?: Array<string | number | "none"> | null;
   type?: Transaction["type"] | null;
   txn_type?: Transaction["txn_type"] | null;
   /** Omit: only non-hidden (default). `hidden`: only hidden. `all`: both. */
@@ -156,6 +169,23 @@ export type TransactionListParams = {
   page_size?: number;
   /** Substring match on **description** only (sent as `description` to the API). */
   description?: string;
+  /**
+   * Multiple txn kinds (sent as `txn_types=income,expense,transfer`).
+   * When set, a single `txn_type` param is not sent.
+   */
+  txn_types?: TransactionTxnType[] | null;
+  /**
+   * Personal split filter (OR). Use `"none"` for rows with no `personal_type`.
+   * Sent as `personal_types=none,gave` etc.
+   */
+  personal_types?: Array<TransactionPersonalType | "none"> | null;
+};
+
+/** Amount sums (sum of credit+debit per row) for the full filtered queryset, by txn_type. */
+export type TotalsByTxnType = {
+  income: string;
+  expense: string;
+  transfer: string;
 };
 
 export type PaginatedTransactionList = {
@@ -166,6 +196,9 @@ export type PaginatedTransactionList = {
   /** Sum of credit / debit for the full filtered queryset (not only this page). */
   total_credit: string;
   total_debit: string;
+  /** Sum of (credit+debit) over all matching rows. */
+  total_flow: string;
+  totals_by_txn_type: TotalsByTxnType;
 };
 
 /** Shared query shape for the transactions list endpoint. */
@@ -183,6 +216,8 @@ function buildTransactionFilterQuery(
     amount,
     account,
     person,
+    category,
+    categories,
     type,
     txn_type,
     show,
@@ -192,6 +227,8 @@ function buildTransactionFilterQuery(
     page = 1,
     page_size,
     description,
+    txn_types,
+    personal_types,
   } = params;
   const normalized: Record<string, string | number | boolean | undefined> = {
     year: year ?? undefined,
@@ -203,8 +240,29 @@ function buildTransactionFilterQuery(
     account: account ?? undefined,
     person: person ?? undefined,
     type: type ?? undefined,
-    txn_type: txn_type ?? undefined,
   };
+
+  if (txn_types && txn_types.length > 0) {
+    normalized.txn_types = txn_types.join(",");
+  } else if (txn_type) {
+    normalized.txn_type = txn_type;
+  }
+
+  if (personal_types && personal_types.length > 0) {
+    normalized.personal_types = personal_types
+      .map((p) => (p === "none" ? "none" : p))
+      .join(",");
+  }
+
+  if (categories && categories.length > 0) {
+    normalized.categories = categories
+      .map((c) => (c === "none" ? "none" : String(c).trim()))
+      .filter((s) => s !== "")
+      .join(",");
+  } else if (category !== undefined && category !== null && String(category).trim() !== "") {
+    normalized.category =
+      category === "none" ? "none" : String(category).trim();
+  }
 
   if (options.includePage) {
     normalized.page = page;
@@ -268,6 +326,13 @@ export async function listTransactionsByYearMonth(
   const previous =
     data?.previous == null || data.previous === "" ? null : String(data.previous);
 
+  const rawBy = data?.totals_by_txn_type;
+  const totals_by_txn_type: TotalsByTxnType = {
+    income: toMoneyString(rawBy?.income),
+    expense: toMoneyString(rawBy?.expense),
+    transfer: toMoneyString(rawBy?.transfer),
+  };
+
   return {
     results,
     count,
@@ -275,6 +340,63 @@ export async function listTransactionsByYearMonth(
     previous,
     total_credit: toMoneyString(data?.total_credit),
     total_debit: toMoneyString(data?.total_debit),
+    total_flow: toMoneyString(data?.total_flow),
+    totals_by_txn_type,
+  };
+}
+
+/** Backend caps `page_size` (see `max_page_size`); fetches every page and concatenates results. */
+const ALL_PAGES_MAX_CHUNK = 500;
+
+export async function listTransactionsAllPages(
+  params: Omit<TransactionListParams, "page"> & { page_size?: number },
+): Promise<PaginatedTransactionList> {
+  const pageSize = Math.min(
+    Math.max(
+      1,
+      Number(
+        params.page_size !== undefined && params.page_size !== null
+          ? params.page_size
+          : ALL_PAGES_MAX_CHUNK,
+      ),
+    ),
+    ALL_PAGES_MAX_CHUNK,
+  );
+  let page = 1;
+  const all: Transaction[] = [];
+  let last: PaginatedTransactionList | null = null;
+  for (let guard = 0; guard < 5000; guard += 1) {
+    const res = await listTransactionsByYearMonth({
+      ...params,
+      page,
+      page_size: pageSize,
+    });
+    all.push(...res.results);
+    last = res;
+    if (!res.next) break;
+    page += 1;
+  }
+  if (!last) {
+    return {
+      results: [],
+      count: 0,
+      next: null,
+      previous: null,
+      total_credit: "0",
+      total_debit: "0",
+      total_flow: "0",
+      totals_by_txn_type: { income: "0", expense: "0", transfer: "0" },
+    };
+  }
+  return {
+    results: all,
+    count: last.count,
+    next: null,
+    previous: null,
+    total_credit: last.total_credit,
+    total_debit: last.total_debit,
+    total_flow: last.total_flow,
+    totals_by_txn_type: last.totals_by_txn_type,
   };
 }
 
@@ -295,6 +417,7 @@ export async function createTransaction(
     category: input.category ?? null,
     remark: input.remark === undefined ? null : input.remark,
     ref_no_or_cheque_no: input.ref_no_or_cheque_no ?? null,
+    personal_type: input.personal_type ?? null,
   };
   const res = await api.post("/transactions/", payload);
   return normalizeTxn(res.data);
@@ -344,6 +467,7 @@ export async function bulkUpdateTransactions(input: {
   person?: string | number | null;
   category?: string | number | null;
   txn_type?: TransactionTxnType;
+  personal_type?: Transaction["personal_type"];
 }): Promise<Transaction[]> {
   const payload: Record<string, any> = {
     ids: input.ids.map((v) => String(v)),
@@ -351,6 +475,7 @@ export async function bulkUpdateTransactions(input: {
   if ("person" in input) payload.person = input.person ?? null;
   if ("category" in input) payload.category = input.category ?? null;
   if ("txn_type" in input) payload.txn_type = input.txn_type;
+  if ("personal_type" in input) payload.personal_type = input.personal_type ?? null;
   const res = await api.post("/transactions/bulk-update/", payload);
   const items = Array.isArray(res.data) ? res.data : res.data?.results;
   if (!Array.isArray(items)) return [];

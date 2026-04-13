@@ -18,17 +18,16 @@ import type { AppTabParamList } from "../navigation/AppNavigator";
 import { listAccounts, type Account } from "../services/accounts";
 import {
   getPersonLoanReport,
-  PERSON_LOAN_TYPES,
+  PERSONAL_TYPES,
   type PersonLoanReport,
-  type PersonLoanType,
+  type PersonalType,
 } from "../services/peoples";
 import { formatMoney2 } from "../utils/money";
 
-const TYPE_LABEL: Record<PersonLoanType, string> = {
-  loan_given: "Loan Given",
-  loan_taken: "Loan Taken",
-  repayment_in: "Repayment In",
-  repayment_out: "Repayment Out",
+const TYPE_LABEL: Record<PersonalType, string> = {
+  gave: "You gave / lent",
+  got: "You got / borrowed",
+  settle: "Settle",
 };
 
 export default function PersonLoanReportScreen() {
@@ -44,8 +43,8 @@ export default function PersonLoanReportScreen() {
   const [year, setYear] = React.useState("");
   const [month, setMonth] = React.useState("");
   const [accountId, setAccountId] = React.useState<string | null>(null);
-  const [selectedTypes, setSelectedTypes] = React.useState<PersonLoanType[]>([
-    ...PERSON_LOAN_TYPES,
+  const [selectedTypes, setSelectedTypes] = React.useState<PersonalType[]>([
+    ...PERSONAL_TYPES,
   ]);
 
   async function loadData() {
@@ -57,7 +56,7 @@ export default function PersonLoanReportScreen() {
           ...(year.trim() ? { year: year.trim() } : {}),
           ...(month.trim() ? { month: month.trim() } : {}),
           ...(accountId ? { account: accountId } : {}),
-          ...(selectedTypes.length === PERSON_LOAN_TYPES.length
+          ...(selectedTypes.length === PERSONAL_TYPES.length
             ? {}
             : { types: selectedTypes }),
         }),
@@ -81,7 +80,7 @@ export default function PersonLoanReportScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  function toggleType(type: PersonLoanType) {
+  function toggleType(type: PersonalType) {
     setSelectedTypes((prev) =>
       prev.includes(type) ? prev.filter((t) => t !== type) : [...prev, type]
     );
@@ -91,7 +90,7 @@ export default function PersonLoanReportScreen() {
     setYear("");
     setMonth("");
     setAccountId(null);
-    setSelectedTypes([...PERSON_LOAN_TYPES]);
+    setSelectedTypes([...PERSONAL_TYPES]);
   }
 
   const accountName =
@@ -195,7 +194,7 @@ export default function PersonLoanReportScreen() {
         <View style={{ gap: 6 }}>
           <Text style={styles.filterFieldLbl}>Types</Text>
           <View style={styles.pillRowWrap}>
-            {PERSON_LOAN_TYPES.map((t) => {
+            {PERSONAL_TYPES.map((t) => {
               const active = selectedTypes.includes(t);
               return (
                 <Pressable
@@ -253,21 +252,27 @@ export default function PersonLoanReportScreen() {
           <View style={styles.summaryCard}>
             <Text style={styles.summaryHeading}>Balance (lifetime)</Text>
             <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>They owe you</Text>
+              <Text style={styles.summaryLabel}>Got − Gave − Settled</Text>
               <Text style={styles.summaryValue}>
-                {formatMoney2(report.summary.balance_lifetime.they_owe_you)}
+                {formatMoney2(report.summary.balance_lifetime.balance)}
               </Text>
             </View>
             <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>You owe them</Text>
+              <Text style={styles.summaryLabel}>Gave (debit)</Text>
               <Text style={styles.summaryValue}>
-                {formatMoney2(report.summary.balance_lifetime.you_owe_them)}
+                {formatMoney2(report.summary.balance_lifetime.gave)}
               </Text>
             </View>
             <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Net</Text>
+              <Text style={styles.summaryLabel}>Got (credit)</Text>
               <Text style={styles.summaryValue}>
-                {formatMoney2(report.summary.balance_lifetime.net)}
+                {formatMoney2(report.summary.balance_lifetime.got)}
+              </Text>
+            </View>
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>Settled</Text>
+              <Text style={styles.summaryValue}>
+                {formatMoney2(report.summary.balance_lifetime.settled)}
               </Text>
             </View>
           </View>
@@ -275,28 +280,34 @@ export default function PersonLoanReportScreen() {
           <View style={styles.summaryCard}>
             <Text style={styles.summaryHeading}>Balance (period)</Text>
             <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>They owe you</Text>
+              <Text style={styles.summaryLabel}>Got − Gave − Settled</Text>
               <Text style={styles.summaryValue}>
-                {formatMoney2(report.summary.balance_period.they_owe_you)}
+                {formatMoney2(report.summary.balance_period.balance)}
               </Text>
             </View>
             <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>You owe them</Text>
+              <Text style={styles.summaryLabel}>Gave (debit)</Text>
               <Text style={styles.summaryValue}>
-                {formatMoney2(report.summary.balance_period.you_owe_them)}
+                {formatMoney2(report.summary.balance_period.gave)}
               </Text>
             </View>
             <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Net</Text>
+              <Text style={styles.summaryLabel}>Got (credit)</Text>
               <Text style={styles.summaryValue}>
-                {formatMoney2(report.summary.balance_period.net)}
+                {formatMoney2(report.summary.balance_period.got)}
+              </Text>
+            </View>
+            <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>Settled</Text>
+              <Text style={styles.summaryValue}>
+                {formatMoney2(report.summary.balance_period.settled)}
               </Text>
             </View>
           </View>
 
           <View style={styles.summaryCard}>
             <Text style={styles.summaryHeading}>Totals by type</Text>
-            {PERSON_LOAN_TYPES.map((t) => {
+            {PERSONAL_TYPES.map((t) => {
               if (!selectedTypes.includes(t)) return null;
               const row = report.summary.totals_by_type[t];
               return (
@@ -304,7 +315,10 @@ export default function PersonLoanReportScreen() {
                   <View>
                     <Text style={styles.typeName}>{TYPE_LABEL[t]}</Text>
                     <Text style={styles.typeSub}>
-                      {row.side.toUpperCase()} · {row.count} txns
+                      {row.side === "settle"
+                        ? "SETTLE"
+                        : row.side.toUpperCase()}{" "}
+                      · {row.count} txns
                     </Text>
                   </View>
                   <Text style={styles.typeAmt}>{formatMoney2(row.sum)}</Text>
@@ -313,7 +327,7 @@ export default function PersonLoanReportScreen() {
             })}
           </View>
 
-          {PERSON_LOAN_TYPES.map((t) => {
+          {PERSONAL_TYPES.map((t) => {
             if (!selectedTypes.includes(t)) return null;
             const items = report.by_type[t] ?? [];
             return (

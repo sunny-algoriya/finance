@@ -1,6 +1,6 @@
 from decimal import Decimal
 
-from django.db.models import Count, Sum
+from django.db.models import Count, F, Sum
 from django.db.models.functions import Lower
 from category.models import Category
 from django_filters.rest_framework import DjangoFilterBackend
@@ -19,38 +19,31 @@ from base_viewsets import BaseModelViewSet
 from transactions.query_helpers import parse_year_month_query_params
 
 
-LOAN_REPORT_TYPES = (
-    Transaction.TransactionType.LOAN_GIVEN,
-    Transaction.TransactionType.LOAN_TAKEN,
-    Transaction.TransactionType.REPAYMENT_IN,
-    Transaction.TransactionType.REPAYMENT_OUT,
-)
+PERSONAL_REPORT_TYPES = {c[0] for c in Transaction.PersonalType.choices}
 
 
-def _debt_totals_for_qs(qs):
-    """Same rules as get_person_balance but on a queryset."""
-    given = (
-        qs.filter(txn_type=Transaction.TransactionType.LOAN_GIVEN).aggregate(s=Sum("debit"))["s"]
+def _personal_totals_for_qs(qs):
+    """Same rules as get_person_balance but on a filtered queryset."""
+    gave = (
+        qs.filter(personal_type=Transaction.PersonalType.GAVE).aggregate(s=Sum("debit"))["s"]
         or Decimal("0")
     )
-    taken = (
-        qs.filter(txn_type=Transaction.TransactionType.LOAN_TAKEN).aggregate(s=Sum("credit"))["s"]
+    got = (
+        qs.filter(personal_type=Transaction.PersonalType.GOT).aggregate(s=Sum("credit"))["s"]
         or Decimal("0")
     )
-    repaid_in = (
-        qs.filter(txn_type=Transaction.TransactionType.REPAYMENT_IN).aggregate(s=Sum("credit"))["s"]
+    settled = (
+        qs.filter(personal_type=Transaction.PersonalType.SETTLE).aggregate(
+            s=Sum(F("credit") + F("debit"))
+        )["s"]
         or Decimal("0")
     )
-    repaid_out = (
-        qs.filter(txn_type=Transaction.TransactionType.REPAYMENT_OUT).aggregate(s=Sum("debit"))["s"]
-        or Decimal("0")
-    )
-    they_owe = given - repaid_in
-    you_owe = taken - repaid_out
+    balance = got - gave - settled
     return {
-        "they_owe_you": they_owe,
-        "you_owe_them": you_owe,
-        "net": they_owe - you_owe,
+        "gave": gave,
+        "got": got,
+        "settled": settled,
+        "balance": balance,
     }
 
 
@@ -134,6 +127,10 @@ class PersonViewSet(BaseModelViewSet):
 
         Response includes ``by_year_month``: years (desc), each with months (desc) and
         ``transactions`` lists (same rows as top-level ``transactions``, grouped).
+
+        Totals ``total_credit``, ``total_debit``, ``net``, and ``gross_total`` (credit + debit)
+        are computed on the same filtered queryset as ``transactions`` (year, month, category,
+        account filters).
         """
         person = self.get_object()
         qp = request.query_params
@@ -189,6 +186,7 @@ class PersonViewSet(BaseModelViewSet):
         )
         tc = agg["total_credit"] or Decimal("0")
         td = agg["total_debit"] or Decimal("0")
+        gross = tc + td
 
         group_by_category = str(qp.get("group_by_category", "")).lower() in (
             "1",
@@ -206,6 +204,7 @@ class PersonViewSet(BaseModelViewSet):
             "total_credit": str(tc),
             "total_debit": str(td),
             "net": str(tc - td),
+            "gross_total": str(gross),
             "transaction_count": agg["txn_count"],
             "categories": categories_breakdown,
         }
@@ -239,33 +238,32 @@ class PersonViewSet(BaseModelViewSet):
     @action(detail=True, methods=["get"], url_path="loan-report")
     def loan_report(self, request, pk=None):
         """
-        Loan / debt activity for this person (requires `person` on each transaction).
+        Personal-type activity for this person (requires `person` on each transaction).
 
-        Types (txn_type):
-        - loan_given — you lent (debit)
-        - loan_taken — you borrowed (credit)
-        - repayment_in — they repaid you (credit)
-        - repayment_out — you repaid them (debit)
+        Types (personal_type):
+        - gave — you paid for them / lent (debit)
+        - got — they paid you / you borrowed (credit)
+        - settle — repayment (either side)
 
         Query:
-        - types=comma-separated list or `all` (default all four), e.g. types=loan_given,loan_taken
+        - types=comma-separated list or `all` (default all three), e.g. types=gave,got
         - year, month, year_month — filter txn_date
         - account=<id> — filter account
 
         Response:
-        - balance_lifetime: they_owe_you / you_owe_them / net (all debt txns for this person)
-        - balance_period: same metrics but only for rows matching filters (if any filter applied)
-        - totals_by_type: debit/credit sums and counts per type (filtered queryset)
-        - by_type: full transaction payloads grouped by txn_type
+        - balance_lifetime: gave / got / settled / balance (all rows with personal_type for this person)
+        - balance_period: same metrics for rows matching filters
+        - totals_by_type: sums and counts per personal_type (filtered queryset)
+        - by_type: full transaction payloads grouped by personal_type
         """
         person = self.get_object()
         qp = request.query_params
         year_int, month_int = parse_year_month_query_params(qp)
 
-        types_raw = (qp.get("types") or qp.get("txn_type") or "all").strip().lower()
-        allowed = {t.value for t in LOAN_REPORT_TYPES}
+        types_raw = (qp.get("types") or qp.get("personal_type") or "all").strip().lower()
+        allowed = PERSONAL_REPORT_TYPES
         if types_raw == "all":
-            selected = list(allowed)
+            selected = sorted(allowed)
         else:
             selected = []
             for part in types_raw.split(","):
@@ -281,12 +279,13 @@ class PersonViewSet(BaseModelViewSet):
                 if p not in selected:
                     selected.append(p)
             if not selected:
-                selected = list(allowed)
+                selected = sorted(allowed)
 
         qs = Transaction.objects.filter(
             user=request.user,
             person=person,
-            txn_type__in=selected,
+            personal_type__isnull=False,
+            personal_type__in=selected,
         )
 
         account_id_raw = qp.get("account")
@@ -304,35 +303,40 @@ class PersonViewSet(BaseModelViewSet):
         qs = qs.select_related("account", "category").order_by("-txn_date", "-id")
 
         bal_life = get_person_balance(person)
-        bal_period = _debt_totals_for_qs(qs)
+        bal_period = _personal_totals_for_qs(qs)
 
         totals_by_type = {}
-        for tt in selected:
-            sub = qs.filter(txn_type=tt)
+
+        for pt in selected:
+            sub = qs.filter(personal_type=pt)
             cnt = sub.count()
-            if tt in (
-                Transaction.TransactionType.LOAN_GIVEN,
-                Transaction.TransactionType.REPAYMENT_OUT,
-            ):
+            if pt == Transaction.PersonalType.GAVE:
                 s = sub.aggregate(x=Sum("debit"))["x"] or Decimal("0")
-                totals_by_type[tt] = {
+                totals_by_type[pt] = {
                     "side": "debit",
                     "sum": _money_str(s),
                     "count": cnt,
                 }
-            else:
+            elif pt == Transaction.PersonalType.GOT:
                 s = sub.aggregate(x=Sum("credit"))["x"] or Decimal("0")
-                totals_by_type[tt] = {
+                totals_by_type[pt] = {
                     "side": "credit",
+                    "sum": _money_str(s),
+                    "count": cnt,
+                }
+            else:
+                s = sub.aggregate(x=Sum(F("credit") + F("debit")))["x"] or Decimal("0")
+                totals_by_type[pt] = {
+                    "side": "settle",
                     "sum": _money_str(s),
                     "count": cnt,
                 }
 
         ctx = {"request": request}
         by_type = {}
-        for tt in selected:
-            by_type[tt] = TransactionSerializer(
-                qs.filter(txn_type=tt).order_by("-txn_date", "-id"),
+        for pt in selected:
+            by_type[pt] = TransactionSerializer(
+                qs.filter(personal_type=pt).order_by("-txn_date", "-id"),
                 many=True,
                 context=ctx,
             ).data

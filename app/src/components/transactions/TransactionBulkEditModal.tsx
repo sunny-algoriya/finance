@@ -14,16 +14,23 @@ import {
 import type { Category } from "../../services/categories";
 import type { People } from "../../services/peoples";
 import {
+  TRANSACTION_PERSONAL_TYPES,
   TRANSACTION_TXN_TYPES,
+  type Transaction,
+  type TransactionPersonalType,
   type TransactionTxnType,
 } from "../../services/transactions";
 import { txnTypeLabel } from "./transactionEditorShared";
 import { txnEditorStyles as styles } from "./transactionEditorStyles";
 
+export type BulkPersonalTypeMode = "keep" | "clear" | TransactionPersonalType;
+
 export type BulkUpdatePatch = {
   person: string | null;
   category: string | null;
   txn_type: TransactionTxnType | undefined;
+  /** Omitted when unchanged; null clears for all selected. */
+  personal_type?: Transaction["personal_type"] | null;
 };
 
 export type TransactionBulkEditModalProps = {
@@ -47,6 +54,8 @@ export function TransactionBulkEditModal({
   const [bulkCategoryId, setBulkCategoryId] = React.useState<string | null>(null);
   const [bulkTxnType, setBulkTxnType] =
     React.useState<TransactionTxnType | null>(null);
+  const [bulkPersonalMode, setBulkPersonalMode] =
+    React.useState<BulkPersonalTypeMode>("keep");
   const [bulkPersonQuery, setBulkPersonQuery] = React.useState("");
   const [bulkCategoryQuery, setBulkCategoryQuery] = React.useState("");
 
@@ -55,6 +64,7 @@ export function TransactionBulkEditModal({
     setBulkPersonId(null);
     setBulkCategoryId(null);
     setBulkTxnType(null);
+    setBulkPersonalMode("keep");
     setBulkPersonQuery("");
     setBulkCategoryQuery("");
   }, [visible]);
@@ -72,11 +82,16 @@ export function TransactionBulkEditModal({
   }, [categories, bulkCategoryQuery]);
 
   async function handleApply() {
-    await onApply({
+    const patch: BulkUpdatePatch = {
       person: bulkPersonId,
       category: bulkCategoryId,
       txn_type: bulkTxnType ?? undefined,
-    });
+    };
+    if (bulkPersonalMode !== "keep") {
+      patch.personal_type =
+        bulkPersonalMode === "clear" ? null : bulkPersonalMode;
+    }
+    await onApply(patch);
   }
 
   return (
@@ -190,6 +205,49 @@ export function TransactionBulkEditModal({
                         ]}
                       >
                         <Text style={styles.bulkChipText}>{c.name}</Text>
+                      </Pressable>
+                    ))}
+                  </View>
+                </View>
+                <View style={{ gap: 6 }}>
+                  <Text style={styles.label}>Personal split</Text>
+                  <Text style={{ color: "#6B6B6B", fontSize: 11 }}>
+                    Only applied when you change from &quot;Keep current&quot;. Requires person on each row for non-clear values.
+                  </Text>
+                  <View style={styles.bulkChipWrap}>
+                    <Pressable
+                      onPress={() => setBulkPersonalMode("keep")}
+                      style={({ pressed }) => [
+                        styles.bulkChipBtn,
+                        pressed && styles.pickerRowPressed,
+                        bulkPersonalMode === "keep" && styles.pickerRowActive,
+                      ]}
+                    >
+                      <Text style={styles.bulkChipText}>Keep current</Text>
+                    </Pressable>
+                    <Pressable
+                      onPress={() => setBulkPersonalMode("clear")}
+                      style={({ pressed }) => [
+                        styles.bulkChipBtn,
+                        pressed && styles.pickerRowPressed,
+                        bulkPersonalMode === "clear" && styles.pickerRowActive,
+                      ]}
+                    >
+                      <Text style={styles.bulkChipText}>Clear all</Text>
+                    </Pressable>
+                    {TRANSACTION_PERSONAL_TYPES.map((pt) => (
+                      <Pressable
+                        key={`bulk-pt-${pt}`}
+                        onPress={() => setBulkPersonalMode(pt)}
+                        style={({ pressed }) => [
+                          styles.bulkChipBtn,
+                          pressed && styles.pickerRowPressed,
+                          bulkPersonalMode === pt && styles.pickerRowActive,
+                        ]}
+                      >
+                        <Text style={styles.bulkChipText}>
+                          {pt.charAt(0).toUpperCase() + pt.slice(1)}
+                        </Text>
                       </Pressable>
                     ))}
                   </View>

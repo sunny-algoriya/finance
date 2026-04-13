@@ -48,6 +48,7 @@ class TransactionSerializer(FlexFieldsModelSerializer):
             "amount",
             "type",
             "txn_type",
+            "personal_type",
             "split_items",
             "hidden",
         ]
@@ -104,6 +105,10 @@ class TransactionSerializer(FlexFieldsModelSerializer):
             raise serializers.ValidationError(
                 {"amount": "Provide exactly one of credit or debit with a value greater than 0."}
             )
+
+        person_merged = attrs.get("person", getattr(self.instance, "person", None) if self.instance else None)
+        if not person_merged:
+            attrs["personal_type"] = None
 
         return attrs
 

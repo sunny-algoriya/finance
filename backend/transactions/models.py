@@ -12,7 +12,7 @@ from dateutil import parser
 from accounts.models import Account
 from people.models import Person
 from category.models import Category
-from django.db.models import Sum
+from django.db.models import F, Sum
 
 logger = logging.getLogger(__name__)
 
@@ -39,10 +39,12 @@ class Transaction(models.Model):
         INCOME = "income"
         EXPENSE = "expense"
         TRANSFER = "transfer"
-        LOAN_GIVEN = "loan_given"
-        LOAN_TAKEN = "loan_taken"
-        REPAYMENT_IN = "repayment_in"
-        REPAYMENT_OUT = "repayment_out"
+
+    class PersonalType(models.TextChoices):
+        """Per-person split: you lent / you borrowed / settlement."""
+        GAVE = "gave"
+        GOT = "got"
+        SETTLE = "settle"
 
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -74,6 +76,13 @@ class Transaction(models.Model):
         max_length=20,
         choices=TransactionType.choices,
         default=TransactionType.EXPENSE
+    )
+
+    personal_type = models.CharField(
+        max_length=10,
+        choices=PersonalType.choices,
+        null=True,
+        blank=True,
     )
 
     txn_date = models.DateField()
@@ -108,28 +117,32 @@ class Transaction(models.Model):
         # direction enforcement
         if self.txn_type in [
             self.TransactionType.INCOME,
-            self.TransactionType.LOAN_TAKEN,
-            self.TransactionType.REPAYMENT_IN,
         ] and self.credit == 0:
             raise ValidationError("Credit required")
 
         if self.txn_type in [
             self.TransactionType.EXPENSE,
-            self.TransactionType.LOAN_GIVEN,
-            self.TransactionType.REPAYMENT_OUT,
         ] and self.debit == 0:
             raise ValidationError("Debit required")
 
-        # person enforcement for debt
-        if self.txn_type in [
-            self.TransactionType.LOAN_GIVEN,
-            self.TransactionType.LOAN_TAKEN,
-            self.TransactionType.REPAYMENT_IN,
-            self.TransactionType.REPAYMENT_OUT,
-        ] and not self.person:
-            raise ValidationError("Person required for debt transactions")
+        if self.txn_type == self.TransactionType.TRANSFER:
+            if self.credit == 0 and self.debit == 0:
+                raise ValidationError("Transfer requires credit or debit")
+
+        if self.personal_type and not self.person:
+            raise ValidationError("Person required when personal_type is set")
+
+        if self.personal_type == self.PersonalType.GAVE and self.debit == 0:
+            raise ValidationError("Debit required for personal_type=gave")
+
+        if self.personal_type == self.PersonalType.GOT and self.credit == 0:
+            raise ValidationError("Credit required for personal_type=got")
+
+        if self.personal_type == self.PersonalType.SETTLE and self.credit == 0 and self.debit == 0:
+            raise ValidationError("Credit or debit required for personal_type=settle")
 
     def save(self, *args, **kwargs):
+        self.full_clean()
         # hash
         self.hash = generate_hash(
             self.txn_date,
@@ -161,43 +174,43 @@ class Transaction(models.Model):
 
     @property
     def is_debt(self):
-        return self.txn_type in [
-            self.TransactionType.LOAN_GIVEN,
-            self.TransactionType.LOAN_TAKEN,
-            self.TransactionType.REPAYMENT_IN,
-            self.TransactionType.REPAYMENT_OUT,
-        ]
+        return self.personal_type is not None
 
 
 # -------------------------
 # Aggregation (person level)
 # -------------------------
 def get_person_balance(person):
+    """
+    Per-person personal_type aggregates (all time, for this person):
+    - gave: sum debits where personal_type=gave
+    - got: sum credits where personal_type=got
+    - settled: sum(credit+debit) where personal_type=settle (one side is always zero)
+    - balance: got - gave - settled
+    """
     qs = Transaction.objects.filter(person=person)
 
-    given = qs.filter(
-        txn_type=Transaction.TransactionType.LOAN_GIVEN
-    ).aggregate(s=Sum("debit"))["s"] or Decimal("0")
-
-    taken = qs.filter(
-        txn_type=Transaction.TransactionType.LOAN_TAKEN
-    ).aggregate(s=Sum("credit"))["s"] or Decimal("0")
-
-    repaid_in = qs.filter(
-        txn_type=Transaction.TransactionType.REPAYMENT_IN
-    ).aggregate(s=Sum("credit"))["s"] or Decimal("0")
-
-    repaid_out = qs.filter(
-        txn_type=Transaction.TransactionType.REPAYMENT_OUT
-    ).aggregate(s=Sum("debit"))["s"] or Decimal("0")
-
-    they_owe = given - repaid_in
-    you_owe = taken - repaid_out
+    gave = (
+        qs.filter(personal_type=Transaction.PersonalType.GAVE).aggregate(s=Sum("debit"))["s"]
+        or Decimal("0")
+    )
+    got = (
+        qs.filter(personal_type=Transaction.PersonalType.GOT).aggregate(s=Sum("credit"))["s"]
+        or Decimal("0")
+    )
+    settled = (
+        qs.filter(personal_type=Transaction.PersonalType.SETTLE).aggregate(
+            s=Sum(F("credit") + F("debit"))
+        )["s"]
+        or Decimal("0")
+    )
+    balance = got - gave - settled
 
     return {
-        "they_owe_you": they_owe,
-        "you_owe_them": you_owe,
-        "net": they_owe - you_owe,
+        "gave": gave,
+        "got": got,
+        "settled": settled,
+        "balance": balance,
     }
     
 class TransactionUpload(models.Model):

@@ -26,6 +26,7 @@ import PersonLedgerScreen from "../screens/PersonLedgerScreen";
 import PersonLoanReportScreen from "../screens/PersonLoanReportScreen";
 import CategoriesScreen from "../screens/CategoriesScreen";
 import TransactionsScreen from "../screens/TransactionsScreen";
+import TransactionBrowseScreen from "../screens/TransactionBrowseScreen";
 import SplitGroupsScreen from "../screens/SplitGroupsScreen";
 import SelfTransferScreen from "../screens/SelfTransferScreen";
 import { getToken } from "../services/auth";
@@ -45,6 +46,7 @@ export type AppTabParamList = {
   PersonLoanReport: { personId: number | string; personName?: string };
   Categories: undefined;
   Transactions: undefined;
+  TransactionBrowse: undefined;
   SplitGroups: undefined;
   SelfTransfers: undefined;
   Activity: undefined;
@@ -112,6 +114,7 @@ function AppShell({ navigation }: NativeStackScreenProps<RootStackParamList, "Ap
     icon: React.ComponentProps<typeof Feather>["name"];
   }> = [
     { key: "Transactions", label: "Transactions", icon: "repeat" },
+    { key: "TransactionBrowse", label: "Browse", icon: "filter" },
     { key: "Accounts", label: "Accounts", icon: "briefcase" },
     { key: "Peoples", label: "People", icon: "users" },
     { key: "Categories", label: "Categories", icon: "grid" },
@@ -137,6 +140,7 @@ function AppShell({ navigation }: NativeStackScreenProps<RootStackParamList, "Ap
         screenOptions={{ headerShown: false }}
       >
         <AppStack.Screen name="Transactions" component={TransactionsScreen} />
+        <AppStack.Screen name="TransactionBrowse" component={TransactionBrowseScreen} />
         <AppStack.Screen name="Accounts" component={AccountsScreen} />
         <AppStack.Screen name="AccountLedger" component={AccountLedgerScreen} />
         <AppStack.Screen name="Peoples" component={PeoplesScreen} />

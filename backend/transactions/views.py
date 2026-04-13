@@ -3,7 +3,7 @@ from collections import OrderedDict
 from datetime import date
 from decimal import Decimal, InvalidOperation
 
-from django.db.models import Q, Sum
+from django.db.models import F, Q, Sum
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.decorators import action
@@ -146,6 +146,12 @@ class TransactionViewSet(BaseModelViewSet):
         )
         account_id = qp.get("account")
         person_id = qp.get("person")
+        categories_raw = (
+            qp.get("categories")
+            or qp.get("category__in")
+            or qp.get("filter[categories]")
+        )
+        category_raw = qp.get("category")
         type_raw = qp.get("type")
         txn_type_raw = qp.get("txn_type")
 
@@ -154,6 +160,64 @@ class TransactionViewSet(BaseModelViewSet):
 
         if person_id is not None:
             qs = qs.filter(person_id=person_id)
+
+        if categories_raw is not None and str(categories_raw).strip():
+            parts = [p.strip() for p in str(categories_raw).split(",") if p.strip()]
+            if not parts:
+                pass
+            else:
+                q_cat = Q()
+                int_ids = []
+                for p in parts:
+                    pl = p.lower()
+                    if pl in ("none", "null", "uncategorized"):
+                        q_cat |= Q(category__isnull=True)
+                    else:
+                        try:
+                            int_ids.append(int(p))
+                        except (TypeError, ValueError):
+                            raise ValidationError(
+                                {
+                                    "categories": 'Invalid token. Use category ids and/or "none" (uncategorized), comma-separated.',
+                                }
+                            )
+                if int_ids:
+                    q_cat |= Q(category_id__in=int_ids)
+                if q_cat:
+                    qs = qs.filter(q_cat)
+        elif category_raw is not None and str(category_raw).strip():
+            cs = str(category_raw).strip().lower()
+            if cs in ("none", "null", "uncategorized"):
+                qs = qs.filter(category__isnull=True)
+            else:
+                try:
+                    qs = qs.filter(category_id=int(category_raw))
+                except (TypeError, ValueError):
+                    raise ValidationError(
+                        {"category": 'Invalid category id, or use "none" for uncategorized.'}
+                    )
+
+        personal_types_raw = (
+            qp.get("personal_types")
+            or qp.get("personal_type__in")
+            or qp.get("filter[personal_types]")
+        )
+        if personal_types_raw is not None and str(personal_types_raw).strip():
+            parts = [p.strip().lower() for p in str(personal_types_raw).split(",") if p.strip()]
+            allowed_pt = {c[0] for c in Transaction.PersonalType.choices}
+            q_pt = Q()
+            for p in parts:
+                if p in ("none", "null", "uncategorized"):
+                    q_pt |= Q(personal_type__isnull=True)
+                elif p in allowed_pt:
+                    q_pt |= Q(personal_type=p)
+                else:
+                    raise ValidationError(
+                        {
+                            "personal_types": 'Invalid value. Use comma-separated: none, gave, got, settle.',
+                        }
+                    )
+            qs = qs.filter(q_pt)
 
         # Person linked vs unlinked: ?ispersonthere=linked|unlinked|all (omit = all)
         ispersonthere_raw = (
@@ -208,7 +272,25 @@ class TransactionViewSet(BaseModelViewSet):
             else:
                 raise ValidationError({"type": 'Invalid type. Use "credit", "debit", or "all".'})
 
-        if txn_type_raw is not None and str(txn_type_raw).strip():
+        txn_types_raw = (
+            qp.get("txn_types")
+            or qp.get("txn_type__in")
+            or qp.get("filter[txn_types]")
+        )
+        if txn_types_raw is not None and str(txn_types_raw).strip():
+            parts = [p.strip() for p in str(txn_types_raw).split(",") if p.strip()]
+            allowed = {c[0] for c in Transaction.TransactionType.choices}
+            bad = [p for p in parts if p not in allowed]
+            if bad:
+                raise ValidationError(
+                    {
+                        "txn_types": f'Invalid txn_type(s): {bad}. Use: {", ".join(sorted(allowed))}.',
+                    }
+                )
+            if not parts:
+                raise ValidationError({"txn_types": "Provide at least one txn type."})
+            qs = qs.filter(txn_type__in=parts)
+        elif txn_type_raw is not None and str(txn_type_raw).strip():
             tt = str(txn_type_raw).strip()
             allowed = {c[0] for c in Transaction.TransactionType.choices}
             if tt not in allowed:
@@ -305,9 +387,32 @@ class TransactionViewSet(BaseModelViewSet):
 
         return _money_str(tc), _money_str(td)
 
+    def _money_str_decimal(self, d: Decimal) -> str:
+        q = d.quantize(Decimal("0.01"))
+        return format(q, "f")
+
+    def _aggregate_list_summary(self, queryset):
+        """
+        Per-row amount is credit + debit (only one side is non-zero). Same filtered queryset
+        as list results: total_flow and sums split by txn_type (income / expense / transfer).
+        """
+        flow_agg = queryset.aggregate(s=Sum(F("credit") + F("debit")))["s"] or Decimal("0")
+        by_type = {c[0]: Decimal("0") for c in Transaction.TransactionType.choices}
+        for row in queryset.values("txn_type").annotate(flow=Sum(F("credit") + F("debit"))):
+            t = row["txn_type"]
+            if t in by_type:
+                by_type[t] = row["flow"] or Decimal("0")
+        return {
+            "total_flow": self._money_str_decimal(flow_agg),
+            "totals_by_txn_type": {
+                k: self._money_str_decimal(v) for k, v in by_type.items()
+            },
+        }
+
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())
         total_credit, total_debit = self._aggregate_totals_money_strings(queryset)
+        summary = self._aggregate_list_summary(queryset)
 
         page = self.paginate_queryset(queryset)
         if page is not None:
@@ -322,6 +427,8 @@ class TransactionViewSet(BaseModelViewSet):
                         ("previous", d["previous"]),
                         ("total_credit", total_credit),
                         ("total_debit", total_debit),
+                        ("total_flow", summary["total_flow"]),
+                        ("totals_by_txn_type", summary["totals_by_txn_type"]),
                         ("results", d["results"]),
                     ]
                 )
@@ -333,6 +440,8 @@ class TransactionViewSet(BaseModelViewSet):
                 [
                     ("total_credit", total_credit),
                     ("total_debit", total_debit),
+                    ("total_flow", summary["total_flow"]),
+                    ("totals_by_txn_type", summary["totals_by_txn_type"]),
                     ("results", serializer.data),
                 ]
             )
@@ -348,6 +457,7 @@ class TransactionViewSet(BaseModelViewSet):
             "person": <person_id|null>,      # optional
             "category": <category_id|null>,  # optional
             "txn_type": <string>             # optional
+            "personal_type": <gave|got|settle|null>  # optional
           }
         """
         raw_ids = request.data.get("ids")
@@ -368,8 +478,14 @@ class TransactionViewSet(BaseModelViewSet):
             updates["category"] = request.data.get("category")
         if "txn_type" in request.data:
             updates["txn_type"] = request.data.get("txn_type")
+        if "personal_type" in request.data:
+            updates["personal_type"] = request.data.get("personal_type")
         if not updates:
-            raise ValidationError({"detail": "Provide at least one field: person, category, or txn_type."})
+            raise ValidationError(
+                {
+                    "detail": "Provide at least one field: person, category, txn_type, or personal_type."
+                }
+            )
 
         updated = []
         for txn in qs:
@@ -411,6 +527,7 @@ class TransactionViewSet(BaseModelViewSet):
         """
         List internal transfers: pairs where one account has a debit and another has
         a credit for the same amount on the same date (same user, different accounts).
+        Transactions with a person set are excluded.
 
         Optional: year, month, year_month (filter txn_date), show / include_hidden.
         Optional: strict_transfer=true — only rows with txn_type=transfer.
@@ -419,6 +536,8 @@ class TransactionViewSet(BaseModelViewSet):
         qp = request.query_params
         qs_base = Transaction.objects.filter(user=user)
         qs_base = _filter_by_hidden_visibility(qs_base, qp)
+        # Self-transfer pairs are account-to-account only; skip rows linked to a person.
+        qs_base = qs_base.filter(person__isnull=True)
 
         year_int, month_int = parse_year_month_query_params(qp)
         if year_int is not None:

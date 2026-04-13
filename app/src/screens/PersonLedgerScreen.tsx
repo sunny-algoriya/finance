@@ -39,6 +39,7 @@ import {
   getTransaction,
 } from "../services/transactions";
 import { groupLedgerRowsByYearMonth } from "../utils/ledgerGrouping";
+import { formatDateDDMMYY } from "../utils/date";
 import { formatMoney2 } from "../utils/money";
 
 function parseMoney(s: string): number {
@@ -148,7 +149,7 @@ function LedgerRow({
         ]}
       >
         <Text style={styles.cellDateTop} numberOfLines={1}>
-          {row.txn_date}
+          {formatDateDDMMYY(row.txn_date)}
         </Text>
         <Text style={styles.cellDesc} numberOfLines={3}>
           {row.description || "—"}
@@ -346,6 +347,9 @@ export default function PersonLedgerScreen() {
         person: patch.person,
         category: patch.category,
         txn_type: patch.txn_type,
+        ...(patch.personal_type !== undefined
+          ? { personal_type: patch.personal_type }
+          : {}),
       });
       setIsBulkEditOpen(false);
       setSelectedTxnIds([]);
@@ -449,19 +453,19 @@ export default function PersonLedgerScreen() {
         <Text style={styles.filterLabel}>
           Optional filters (leave empty for all time)
         </Text>
-        <View style={styles.filterRow}>
-          <View style={styles.filterField}>
+        <View style={styles.filterSingleRow}>
+          <View style={styles.filterCol}>
             <Text style={styles.filterFieldLbl}>Year</Text>
             <TextInput
               value={filterYear}
               onChangeText={setFilterYear}
-              placeholder="e.g. 2026"
+              placeholder="2026"
               placeholderTextColor="#6B6B6B"
               keyboardType="number-pad"
               style={styles.filterInput}
             />
           </View>
-          <View style={styles.filterField}>
+          <View style={styles.filterCol}>
             <Text style={styles.filterFieldLbl}>Month</Text>
             <TextInput
               value={filterMonth}
@@ -472,11 +476,10 @@ export default function PersonLedgerScreen() {
               style={styles.filterInput}
             />
           </View>
-        </View>
-        <View style={styles.filterActions}>
           <Pressable
             onPress={applyFilters}
             style={({ pressed }) => [
+              styles.filterBtnCell,
               styles.applyBtn,
               pressed && styles.applyBtnPressed,
             ]}
@@ -486,6 +489,7 @@ export default function PersonLedgerScreen() {
           <Pressable
             onPress={() => void clearFilters()}
             style={({ pressed }) => [
+              styles.filterBtnCell,
               styles.clearBtn,
               pressed && styles.clearBtnPressed,
             ]}
@@ -570,6 +574,13 @@ export default function PersonLedgerScreen() {
         <ScrollView contentContainerStyle={styles.scrollContent}>
           <View style={styles.summaryCard}>
             <View style={styles.summaryRow}>
+              <Text style={styles.summaryLabel}>Total (credit + debit)</Text>
+              <Text style={[styles.summaryValue, styles.summaryGross]}>
+                {formatMoney2(ledger.gross_total)}
+              </Text>
+            </View>
+            <View style={styles.summaryDivider} />
+            <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>Total credit</Text>
               <Text style={[styles.summaryValue, styles.creditText]}>
                 {formatMoney2(ledger.total_credit)}
@@ -595,7 +606,7 @@ export default function PersonLedgerScreen() {
             </View>
           </View>
 
-          <View style={styles.chartCard}>
+          {/* <View style={styles.chartCard}>
             <Text style={styles.chartTitle}>
               Credit vs debit (share of volume)
             </Text>
@@ -642,7 +653,7 @@ export default function PersonLedgerScreen() {
                 />
               </View>
             ) : null}
-          </View>
+          </View> */}
 
           <View style={styles.tableTitleRow}>
             <Text style={styles.tableTitle}>Transactions</Text>
@@ -772,8 +783,20 @@ const styles = StyleSheet.create({
     fontFamily: "Poppins_400Regular",
     fontSize: 12,
   },
-  filterRow: { flexDirection: "row", gap: 12 },
-  filterField: { flex: 1, gap: 4 },
+  /** Year, month, Apply, Clear in one row; inputs and buttons bottom-aligned. */
+  filterSingleRow: {
+    flexDirection: "row",
+    gap: 8,
+    alignItems: "flex-end",
+    width: "100%",
+  },
+  filterCol: { flex: 1, minWidth: 0, gap: 4 },
+  filterBtnCell: {
+    flex: 1,
+    minWidth: 0,
+    minHeight: 44,
+    justifyContent: "center",
+  },
   filterFieldLbl: {
     color: "#0B0B0B",
     fontFamily: "Poppins_600SemiBold",
@@ -783,19 +806,19 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#E7E7E7",
     borderRadius: 12,
-    paddingHorizontal: 10,
+    paddingHorizontal: 8,
     paddingVertical: 10,
     fontFamily: "Poppins_600SemiBold",
     fontSize: 13,
     color: "#0B0B0B",
   },
-  filterActions: { flexDirection: "row", gap: 10, marginTop: 4 },
   applyBtn: {
-    flex: 1,
     backgroundColor: "#0B0B0B",
     borderRadius: 12,
     paddingVertical: 10,
+    paddingHorizontal: 8,
     alignItems: "center",
+    justifyContent: "center",
   },
   applyBtnPressed: { opacity: 0.88 },
   applyBtnText: {
@@ -808,7 +831,9 @@ const styles = StyleSheet.create({
     borderColor: "#0B0B0B",
     borderRadius: 12,
     paddingVertical: 10,
-    paddingHorizontal: 18,
+    paddingHorizontal: 8,
+    alignItems: "center",
+    justifyContent: "center",
   },
   clearBtnPressed: { backgroundColor: "#F5F5F5" },
   clearBtnText: {
@@ -865,6 +890,15 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+  },
+  summaryDivider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: "#E7E7E7",
+    marginVertical: 4,
+  },
+  summaryGross: {
+    fontSize: 16,
+    fontFamily: "Poppins_800ExtraBold",
   },
   summaryLabel: {
     color: "#6B6B6B",

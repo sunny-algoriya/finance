@@ -1,8 +1,17 @@
 import { api } from "./api";
 
+export type PersonPersonalSummary = {
+  gave: string;
+  got: string;
+  settled: string;
+  balance: string;
+};
+
 export type People = {
   id: number | string;
   name: string;
+  /** Present when API returns `personal_summary` (e.g. list with serializer). */
+  personal_summary?: PersonPersonalSummary;
 };
 
 export type PeopleListParams = {
@@ -26,7 +35,23 @@ function normalizePeople(raw: any): People {
     throw new Error("People is missing name.");
   }
 
-  return { id, name };
+  const ps = raw?.personal_summary;
+  const personal_summary =
+    ps &&
+    typeof ps === "object" &&
+    ps.gave != null &&
+    ps.got != null &&
+    ps.settled != null &&
+    ps.balance != null
+      ? {
+          gave: String(ps.gave),
+          got: String(ps.got),
+          settled: String(ps.settled),
+          balance: String(ps.balance),
+        }
+      : undefined;
+
+  return { id, name, ...(personal_summary ? { personal_summary } : {}) };
 }
 
 function normalizePeopleList(raw: any): People[] {
@@ -37,7 +62,7 @@ function normalizePeopleList(raw: any): People[] {
 
 export async function listPeoples(params: PeopleListParams = {}): Promise<People[]> {
   const search = params.search?.trim();
-  const res = await api.get("/people/", {
+  const res = await api.get("/people/?page_size=1000", {
     params: search ? { search } : undefined,
   });
   return normalizePeopleList(res.data);
@@ -112,6 +137,8 @@ export type PersonLedger = {
   total_credit: string;
   total_debit: string;
   net: string;
+  /** Sum of total credit and total debit for the filtered rows (gross volume). */
+  gross_total: string;
   transaction_count: number;
   categories: PersonLedgerCategory[];
   transactions: PersonLedgerRow[];
@@ -173,6 +200,18 @@ function normalizeLedger(raw: any): PersonLedger {
   const cats = Array.isArray(raw?.categories)
     ? raw.categories.map(normalizeLedgerCategory)
     : [];
+  const tcStr = String(raw?.total_credit ?? "0");
+  const tdStr = String(raw?.total_debit ?? "0");
+  const grossRaw = raw?.gross_total;
+  const grossStr =
+    grossRaw !== undefined && grossRaw !== null && grossRaw !== ""
+      ? String(grossRaw)
+      : (() => {
+          const a = Number(String(tcStr).replace(/,/g, "").trim());
+          const b = Number(String(tdStr).replace(/,/g, "").trim());
+          const s = (Number.isFinite(a) ? a : 0) + (Number.isFinite(b) ? b : 0);
+          return s.toFixed(2);
+        })();
   return {
     person: raw?.person ?? raw?.person_id ?? "",
     person_name: String(raw?.person_name ?? raw?.personName ?? ""),
@@ -180,9 +219,10 @@ function normalizeLedger(raw: any): PersonLedger {
     month: raw?.month ?? null,
     account: raw?.account ?? null,
     category: categoryEcho,
-    total_credit: String(raw?.total_credit ?? "0"),
-    total_debit: String(raw?.total_debit ?? "0"),
+    total_credit: tcStr,
+    total_debit: tdStr,
     net: String(raw?.net ?? "0"),
+    gross_total: grossStr,
     transaction_count: typeof raw?.transaction_count === "number" ? raw.transaction_count : txs.length,
     categories: cats,
     transactions: txs,
@@ -217,17 +257,12 @@ export async function getPersonLedger(
   return normalizeLedger(res.data);
 }
 
-export const PERSON_LOAN_TYPES = [
-  "repayment_in",
-  "repayment_out",
-  "loan_given",
-  "loan_taken",
-] as const;
+export const PERSONAL_TYPES = ["gave", "got", "settle"] as const;
 
-export type PersonLoanType = (typeof PERSON_LOAN_TYPES)[number];
+export type PersonalType = (typeof PERSONAL_TYPES)[number];
 
 type LoanTypeSummary = {
-  side: "debit" | "credit";
+  side: "debit" | "credit" | "settle";
   sum: string;
   count: number;
 };
@@ -248,27 +283,19 @@ export type PersonLoanReport = {
   filters: {
     year: number | null;
     month: number | null;
-    types: PersonLoanType[];
+    types: PersonalType[];
     account: number | string | null;
   };
   summary: {
-    balance_lifetime: {
-      they_owe_you: string;
-      you_owe_them: string;
-      net: string;
-    };
-    balance_period: {
-      they_owe_you: string;
-      you_owe_them: string;
-      net: string;
-    };
-    totals_by_type: Record<PersonLoanType, LoanTypeSummary>;
+    balance_lifetime: PersonPersonalSummary;
+    balance_period: PersonPersonalSummary;
+    totals_by_type: Record<PersonalType, LoanTypeSummary>;
   };
-  by_type: Record<PersonLoanType, LoanReportTxn[]>;
+  by_type: Record<PersonalType, LoanReportTxn[]>;
 };
 
 export type PersonLoanReportQuery = {
-  types?: PersonLoanType[] | "all";
+  types?: PersonalType[] | "all";
   year?: number | string;
   month?: number | string;
   year_month?: string;
@@ -298,8 +325,11 @@ function normalizeLoanTxn(raw: any): LoanReportTxn {
 }
 
 function normalizeTypeSummary(raw: any): LoanTypeSummary {
+  const s = raw?.side;
+  const side: LoanTypeSummary["side"] =
+    s === "debit" ? "debit" : s === "settle" ? "settle" : "credit";
   return {
-    side: raw?.side === "debit" ? "debit" : "credit",
+    side,
     sum: toMoneyString(raw?.sum),
     count: Number(raw?.count ?? 0),
   };
@@ -337,26 +367,29 @@ export async function getPersonLoanReport(
   const raw = res.data ?? {};
   const byTypeRaw = raw?.by_type ?? {};
   const totalsRaw = raw?.summary?.totals_by_type ?? {};
-  const selectedTypes = PERSON_LOAN_TYPES.filter((t) => Array.isArray(raw?.filters?.types)
-    ? raw.filters.types.includes(t)
-    : true);
+  const selectedTypes = PERSONAL_TYPES.filter((t) =>
+    Array.isArray(raw?.filters?.types) ? raw.filters.types.includes(t) : true,
+  );
 
-  const by_type = PERSON_LOAN_TYPES.reduce(
+  const by_type = PERSONAL_TYPES.reduce(
     (acc, t) => {
       const items = Array.isArray(byTypeRaw?.[t]) ? byTypeRaw[t] : [];
       acc[t] = items.map(normalizeLoanTxn);
       return acc;
     },
-    {} as Record<PersonLoanType, LoanReportTxn[]>
+    {} as Record<PersonalType, LoanReportTxn[]>,
   );
 
-  const totals_by_type = PERSON_LOAN_TYPES.reduce(
+  const totals_by_type = PERSONAL_TYPES.reduce(
     (acc, t) => {
       acc[t] = normalizeTypeSummary(totalsRaw?.[t]);
       return acc;
     },
-    {} as Record<PersonLoanType, LoanTypeSummary>
+    {} as Record<PersonalType, LoanTypeSummary>,
   );
+
+  const bl = raw?.summary?.balance_lifetime ?? {};
+  const bp = raw?.summary?.balance_period ?? {};
 
   return {
     person: {
@@ -369,19 +402,21 @@ export async function getPersonLoanReport(
         typeof raw?.filters?.year === "number" ? raw.filters.year : raw?.filters?.year ?? null,
       month:
         typeof raw?.filters?.month === "number" ? raw.filters.month : raw?.filters?.month ?? null,
-      types: selectedTypes.length ? selectedTypes : [...PERSON_LOAN_TYPES],
+      types: selectedTypes.length ? selectedTypes : [...PERSONAL_TYPES],
       account: raw?.filters?.account ?? null,
     },
     summary: {
       balance_lifetime: {
-        they_owe_you: toMoneyString(raw?.summary?.balance_lifetime?.they_owe_you),
-        you_owe_them: toMoneyString(raw?.summary?.balance_lifetime?.you_owe_them),
-        net: toMoneyString(raw?.summary?.balance_lifetime?.net),
+        gave: toMoneyString(bl.gave),
+        got: toMoneyString(bl.got),
+        settled: toMoneyString(bl.settled),
+        balance: toMoneyString(bl.balance),
       },
       balance_period: {
-        they_owe_you: toMoneyString(raw?.summary?.balance_period?.they_owe_you),
-        you_owe_them: toMoneyString(raw?.summary?.balance_period?.you_owe_them),
-        net: toMoneyString(raw?.summary?.balance_period?.net),
+        gave: toMoneyString(bp.gave),
+        got: toMoneyString(bp.got),
+        settled: toMoneyString(bp.settled),
+        balance: toMoneyString(bp.balance),
       },
       totals_by_type,
     },

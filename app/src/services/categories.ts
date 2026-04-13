@@ -25,8 +25,17 @@ function normalizeCategoryList(raw: any): Category[] {
   return items.map(normalizeCategory);
 }
 
-export async function listCategories(): Promise<Category[]> {
-  const res = await api.get("/category/");
+export type CategoryListParams = {
+  search?: string;
+};
+
+export async function listCategories(
+  params: CategoryListParams = {},
+): Promise<Category[]> {
+  const search = params.search?.trim();
+  const res = await api.get("/category/?page_size=1000", {
+    params: search ? { search } : undefined,
+  });
   return normalizeCategoryList(res.data);
 }
 

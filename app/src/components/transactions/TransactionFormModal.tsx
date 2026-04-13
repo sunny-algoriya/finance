@@ -26,8 +26,10 @@ import {
   createTransaction,
   deleteTransaction,
   patchTransaction,
+  TRANSACTION_PERSONAL_TYPES,
   TRANSACTION_TXN_TYPES,
   type Transaction,
+  type TransactionPersonalType,
   type TransactionTxnType,
 } from "../../services/transactions";
 import {
@@ -78,6 +80,9 @@ export function TransactionFormModal({
   const [amount, setAmount] = React.useState("0.00");
   const [txnType, setTxnType] = React.useState<"credit" | "debit">("credit");
   const [txnKind, setTxnKind] = React.useState<TransactionTxnType>("expense");
+  const [personalType, setPersonalType] = React.useState<TransactionPersonalType | null>(
+    null,
+  );
 
   const [isAccountPickerOpen, setIsAccountPickerOpen] = React.useState(false);
   const [isPersonPickerOpen, setIsPersonPickerOpen] = React.useState(false);
@@ -127,6 +132,7 @@ export function TransactionFormModal({
       setAmount("0.00");
       setTxnType("credit");
       setTxnKind("expense");
+      setPersonalType(null);
     } else {
       const txn = editState.txn;
       setAccountId(txn.account);
@@ -138,6 +144,7 @@ export function TransactionFormModal({
       setAmount(txn.amount ?? "0.00");
       setTxnType(txn.type ?? "credit");
       setTxnKind(txn.txn_type ?? "expense");
+      setPersonalType(txn.personal_type ?? null);
     }
     setPersonPickerQuery("");
     setCategoryPickerQuery("");
@@ -240,6 +247,7 @@ export function TransactionFormModal({
           amount,
           type: txnType,
           txn_type: txnKind,
+          personal_type: personId ? personalType : null,
         });
         onSaved({ mode: "create", txn: created });
       } else {
@@ -253,6 +261,7 @@ export function TransactionFormModal({
           amount,
           type: txnType,
           txn_type: txnKind,
+          personal_type: personId ? personalType : null,
         });
         onSaved({ mode: "edit", txn: updated });
       }
@@ -380,6 +389,84 @@ export function TransactionFormModal({
                   >
                     <Text style={styles.pickerBtnText}>{personLabel ?? "None"}</Text>
                   </Pressable>
+                </View>
+
+                <View style={{ gap: 6, opacity: personId ? 1 : 0.55 }}>
+                  <Text style={styles.label}>Personal split (optional)</Text>
+                  <Text style={{ color: "#6B6B6B", fontSize: 11, fontFamily: "Poppins_400Regular" }}>
+                    {personId
+                      ? "Gave = you lent (debit); Got = you borrowed (credit); Settle = repayment"
+                      : "Select a person above to set Gave, Got, or Settle."}
+                  </Text>
+                  <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 8 }}>
+                    <Pressable
+                      onPress={() => {
+                        if (!personId) {
+                          Alert.alert("Person required", "Select a person first to use personal split.");
+                          return;
+                        }
+                        setPersonalType(null);
+                      }}
+                      disabled={isSaving}
+                      style={({ pressed }) => [
+                        styles.typePill,
+                        personalType === null && styles.sidebarTypePillActiveNeutral,
+                        pressed &&
+                          personId != null &&
+                          personalType !== null &&
+                          styles.typePillPressed,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.typePillText,
+                          personalType === null && styles.typePillTextActive,
+                        ]}
+                      >
+                        None
+                      </Text>
+                    </Pressable>
+                    {TRANSACTION_PERSONAL_TYPES.map((pt) => (
+                      <Pressable
+                        key={pt}
+                        onPress={() => {
+                          if (!personId) {
+                            Alert.alert("Person required", "Select a person first to use personal split.");
+                            return;
+                          }
+                          setPersonalType((prev) => {
+                            const next = prev === pt ? null : pt;
+                            if (next === "gave") {
+                              setTxnKind("expense");
+                              setTxnType("debit");
+                            } else if (next === "got") {
+                              setTxnKind("income");
+                              setTxnType("credit");
+                            }
+                            return next;
+                          });
+                        }}
+                        disabled={isSaving}
+                        style={({ pressed }) => [
+                          styles.typePill,
+                          personalType === pt && styles.sidebarTypePillActiveNeutral,
+                          pressed &&
+                            personId != null &&
+                            personalType !== pt &&
+                            styles.typePillPressed,
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.typePillText,
+                            personalType === pt && styles.typePillTextActive,
+                          ]}
+                        >
+                          {pt.charAt(0).toUpperCase() + pt.slice(1)}
+                        </Text>
+                      </Pressable>
+                    ))}
+                  </View>
                 </View>
 
                 <View style={{ gap: 6 }}>
@@ -622,6 +709,7 @@ export function TransactionFormModal({
               <Pressable
                 onPress={() => {
                   setPersonId(null);
+                  setPersonalType(null);
                   setIsPersonPickerOpen(false);
                 }}
                 style={({ pressed }) => [styles.pickerRow, pressed && styles.pickerRowPressed]}

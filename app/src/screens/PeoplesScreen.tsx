@@ -241,6 +241,12 @@ export default function PeoplesScreen() {
             items.map((p) => (
               <View key={String(p.id)} style={styles.card}>
                 <Text style={styles.cardTitle}>{p.name}</Text>
+                {p.personal_summary ? (
+                  <Text style={styles.cardBalance} numberOfLines={2}>
+                    Balance {p.personal_summary.balance} · Gave {p.personal_summary.gave} · Got{" "}
+                    {p.personal_summary.got} · Settled {p.personal_summary.settled}
+                  </Text>
+                ) : null}
 
                 <View style={styles.cardActions}>
                   <Pressable
@@ -427,6 +433,13 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   cardTitle: { color: "#0B0B0B", fontSize: 14, fontFamily: "Poppins_700Bold" },
+  cardBalance: {
+    color: "#6B6B6B",
+    fontSize: 11,
+    fontFamily: "Poppins_500Medium",
+    marginTop: 4,
+    marginBottom: 2,
+  },
   cardActions: { flexDirection: "row", gap: 10 },
   smallBtn: {
     borderWidth: 1,

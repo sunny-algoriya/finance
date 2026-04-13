@@ -298,6 +298,9 @@ export default function AccountLedgerScreen() {
         person: patch.person,
         category: patch.category,
         txn_type: patch.txn_type,
+        ...(patch.personal_type !== undefined
+          ? { personal_type: patch.personal_type }
+          : {}),
       });
       setIsBulkEditOpen(false);
       setSelectedTxnIds([]);

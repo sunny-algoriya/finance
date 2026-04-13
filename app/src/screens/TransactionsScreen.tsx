@@ -19,9 +19,9 @@ import { listAccounts, type Account } from "../services/accounts";
 import { listCategories, type Category } from "../services/categories";
 import { listPeoples, type People } from "../services/peoples";
 import {
-  formatFullDateWithWeekday,
-  formatShortWeekdayDay,
+  formatDateDDMMYY,
 } from "../utils/date";
+import { groupLedgerRowsByYearMonth } from "../utils/ledgerGrouping";
 import { formatMoney2 } from "../utils/money";
 import AppTabScreen from "../components/AppTabScreen";
 import {
@@ -194,26 +194,6 @@ function txnTypePillStyles(v: TransactionTxnType) {
         wrap: styles.cellTypePillTransfer,
         text: styles.cellTypePillTransferText,
       };
-    case "loan_given":
-      return {
-        wrap: styles.cellTypePillLoanGiven,
-        text: styles.cellTypePillLoanGivenText,
-      };
-    case "loan_taken":
-      return {
-        wrap: styles.cellTypePillLoanTaken,
-        text: styles.cellTypePillLoanTakenText,
-      };
-    case "repayment_in":
-      return {
-        wrap: styles.cellTypePillRepaymentIn,
-        text: styles.cellTypePillRepaymentInText,
-      };
-    case "repayment_out":
-      return {
-        wrap: styles.cellTypePillRepaymentOut,
-        text: styles.cellTypePillRepaymentOutText,
-      };
     default:
       return {
         wrap: undefined,
@@ -303,6 +283,9 @@ export default function TransactionsScreen() {
   const [filterPersonId, setFilterPersonId] = React.useState<string | null>(
     () => getQueryParam("person"),
   );
+  const [filterCategoryId, setFilterCategoryId] = React.useState<string | null>(
+    () => getQueryParam("category"),
+  );
   const [filterTxnType, setFilterTxnType] = React.useState<
     "credit" | "debit" | null
   >(() => {
@@ -347,6 +330,70 @@ export default function TransactionsScreen() {
     React.useState(false);
   const [isFilterPersonPickerOpen, setIsFilterPersonPickerOpen] =
     React.useState(false);
+
+  const [filterPersonPickerDebounced, setFilterPersonPickerDebounced] =
+    React.useState("");
+  React.useEffect(() => {
+    const h = setTimeout(
+      () => setFilterPersonPickerDebounced(filterPersonPickerQuery.trim()),
+      300,
+    );
+    return () => clearTimeout(h);
+  }, [filterPersonPickerQuery]);
+
+  const [peoplePickerList, setPeoplePickerList] = React.useState<People[]>([]);
+  React.useEffect(() => {
+    if (!isFilterPersonPickerOpen) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const list = await listPeoples({
+          search: filterPersonPickerDebounced || undefined,
+        });
+        if (!cancelled) setPeoplePickerList(list);
+      } catch {
+        if (!cancelled) setPeoplePickerList([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isFilterPersonPickerOpen, filterPersonPickerDebounced]);
+
+  const [isFilterCategoryPickerOpen, setIsFilterCategoryPickerOpen] =
+    React.useState(false);
+  const [filterCategoryPickerQuery, setFilterCategoryPickerQuery] =
+    React.useState("");
+  const [filterCategoryPickerDebounced, setFilterCategoryPickerDebounced] =
+    React.useState("");
+  React.useEffect(() => {
+    const h = setTimeout(
+      () => setFilterCategoryPickerDebounced(filterCategoryPickerQuery.trim()),
+      300,
+    );
+    return () => clearTimeout(h);
+  }, [filterCategoryPickerQuery]);
+
+  const [categoriesPickerList, setCategoriesPickerList] = React.useState<
+    Category[]
+  >([]);
+  React.useEffect(() => {
+    if (!isFilterCategoryPickerOpen) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const list = await listCategories({
+          search: filterCategoryPickerDebounced || undefined,
+        });
+        if (!cancelled) setCategoriesPickerList(list);
+      } catch {
+        if (!cancelled) setCategoriesPickerList([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isFilterCategoryPickerOpen, filterCategoryPickerDebounced]);
 
   const [txnSearchInput, setTxnSearchInput] = React.useState(() =>
     IS_WEB ? (getQueryParam("description") ?? "") : "",
@@ -478,6 +525,7 @@ export default function TransactionsScreen() {
         selectedMonth,
         filterAccountId ?? "",
         filterPersonId ?? "",
+        filterCategoryId ?? "",
         filterTxnType ?? "",
         filterTxnKind ?? "",
         filterVisibility,
@@ -496,6 +544,7 @@ export default function TransactionsScreen() {
       selectedMonth,
       filterAccountId,
       filterPersonId,
+      filterCategoryId,
       filterTxnType,
       filterTxnKind,
       filterVisibility,
@@ -529,16 +578,15 @@ export default function TransactionsScreen() {
     return m;
   }, [categories]);
 
+  const txnsByYearMonth = React.useMemo(
+    () => groupLedgerRowsByYearMonth(txns),
+    [txns],
+  );
+
   const [filterTotals, setFilterTotals] = React.useState<{
     total_credit: string;
     total_debit: string;
   } | null>(null);
-
-  const peopleFilteredForSidebar = React.useMemo(() => {
-    const q = filterPersonPickerQuery.trim().toLowerCase();
-    if (!q) return people;
-    return people.filter((p) => p.name.toLowerCase().includes(q));
-  }, [people, filterPersonPickerQuery]);
 
   const monthOptions = React.useMemo(
     () => [
@@ -618,6 +666,12 @@ export default function TransactionsScreen() {
           amount: filterAmountExactDebounced || undefined,
           account: filterAccountId ?? undefined,
           person: filterPersonId ?? undefined,
+          ...(filterCategoryId
+            ? {
+                category:
+                  filterCategoryId === "none" ? "none" : filterCategoryId,
+              }
+            : {}),
           type: filterTxnType ?? undefined,
           txn_type: filterTxnKind ?? undefined,
           ...(filterVisibility === "hidden"
@@ -661,6 +715,7 @@ export default function TransactionsScreen() {
       selectedMonth,
       filterAccountId,
       filterPersonId,
+      filterCategoryId,
       filterTxnType,
       filterTxnKind,
       filterVisibility,
@@ -749,6 +804,7 @@ export default function TransactionsScreen() {
   const clearAllFilters = React.useCallback(() => {
     setFilterAccountId(null);
     setFilterPersonId(null);
+    setFilterCategoryId(null);
     setFilterTxnType(null);
     setFilterTxnKind(null);
     setFilterVisibility("visible");
@@ -766,6 +822,7 @@ export default function TransactionsScreen() {
       const url = new URL(window.location.href);
       url.searchParams.delete("account");
       url.searchParams.delete("person");
+      url.searchParams.delete("category");
       url.searchParams.delete("type");
       url.searchParams.delete("txn_type");
       url.searchParams.delete("show");
@@ -1083,6 +1140,9 @@ export default function TransactionsScreen() {
         person: patch.person,
         category: patch.category,
         txn_type: patch.txn_type,
+        ...(patch.personal_type !== undefined
+          ? { personal_type: patch.personal_type }
+          : {}),
       });
       setIsBulkEditOpen(false);
       setSelectedTxnIds([]);
@@ -1328,6 +1388,7 @@ export default function TransactionsScreen() {
                 onPress={() => {
                   setFilterAccountId(getQueryParam("account"));
                   setFilterPersonId(getQueryParam("person"));
+                  setFilterCategoryId(getQueryParam("category"));
                   const qType = getQueryParam("type");
                   setFilterTxnType(
                     qType === "credit" || qType === "debit" ? qType : null,
@@ -1647,6 +1708,26 @@ export default function TransactionsScreen() {
                   {filterPersonId
                     ? (peopleById.get(String(filterPersonId))?.name ??
                       `Person ${filterPersonId}`)
+                    : "All"}
+                </Text>
+              </Pressable>
+            </View>
+
+            <View style={{ gap: 6 }}>
+              <Text style={styles.label}>Category</Text>
+              <Pressable
+                onPress={() => setIsFilterCategoryPickerOpen(true)}
+                style={({ pressed }) => [
+                  styles.pickerBtn,
+                  pressed && styles.pickerBtnPressed,
+                ]}
+              >
+                <Text style={styles.pickerBtnText}>
+                  {filterCategoryId
+                    ? filterCategoryId === "none"
+                      ? "Uncategorized"
+                      : (categoryById.get(String(filterCategoryId))?.name ??
+                        `Category ${filterCategoryId}`)
                     : "All"}
                 </Text>
               </Pressable>
@@ -2129,11 +2210,16 @@ export default function TransactionsScreen() {
             >
               <Text style={styles.pickerRowText}>All</Text>
             </Pressable>
-            {peopleFilteredForSidebar.map((p) => (
+            {peoplePickerList.map((p) => (
               <Pressable
                 key={String(p.id)}
                 onPress={() => {
                   setFilterPersonId(String(p.id));
+                  setPeople((prev) =>
+                    prev.some((x) => String(x.id) === String(p.id))
+                      ? prev
+                      : [...prev, p],
+                  );
                   if (IS_WEB) {
                     const url = new URL(window.location.href);
                     url.searchParams.set("person", String(p.id));
@@ -2147,6 +2233,91 @@ export default function TransactionsScreen() {
                 ]}
               >
                 <Text style={styles.pickerRowText}>{p.name}</Text>
+              </Pressable>
+            ))}
+          </ScrollView>
+        </View>
+      </Modal>
+
+      <Modal
+        visible={isFilterCategoryPickerOpen}
+        animationType="fade"
+        transparent
+        onRequestClose={() => setIsFilterCategoryPickerOpen(false)}
+      >
+        <Pressable
+          style={styles.backdrop}
+          onPress={() => setIsFilterCategoryPickerOpen(false)}
+        />
+        <View style={styles.pickerSheet}>
+          <Text style={styles.pickerTitle}>Select category</Text>
+          <TextInput
+            value={filterCategoryPickerQuery}
+            onChangeText={setFilterCategoryPickerQuery}
+            placeholder="Search category…"
+            placeholderTextColor="#6B6B6B"
+            style={styles.pickerSearchInput}
+            autoCapitalize="none"
+            autoCorrect={false}
+          />
+          <ScrollView contentContainerStyle={{ gap: 10 }}>
+            <Pressable
+              onPress={() => {
+                setFilterCategoryId(null);
+                if (IS_WEB) {
+                  const url = new URL(window.location.href);
+                  url.searchParams.delete("category");
+                  window.history.replaceState(null, "", url.toString());
+                }
+                setIsFilterCategoryPickerOpen(false);
+              }}
+              style={({ pressed }) => [
+                styles.pickerRow,
+                pressed && styles.pickerRowPressed,
+              ]}
+            >
+              <Text style={styles.pickerRowText}>All</Text>
+            </Pressable>
+            <Pressable
+              onPress={() => {
+                setFilterCategoryId("none");
+                if (IS_WEB) {
+                  const url = new URL(window.location.href);
+                  url.searchParams.set("category", "none");
+                  window.history.replaceState(null, "", url.toString());
+                }
+                setIsFilterCategoryPickerOpen(false);
+              }}
+              style={({ pressed }) => [
+                styles.pickerRow,
+                pressed && styles.pickerRowPressed,
+              ]}
+            >
+              <Text style={styles.pickerRowText}>Uncategorized</Text>
+            </Pressable>
+            {categoriesPickerList.map((c) => (
+              <Pressable
+                key={String(c.id)}
+                onPress={() => {
+                  setFilterCategoryId(String(c.id));
+                  setCategories((prev) =>
+                    prev.some((x) => String(x.id) === String(c.id))
+                      ? prev
+                      : [...prev, c],
+                  );
+                  if (IS_WEB) {
+                    const url = new URL(window.location.href);
+                    url.searchParams.set("category", String(c.id));
+                    window.history.replaceState(null, "", url.toString());
+                  }
+                  setIsFilterCategoryPickerOpen(false);
+                }}
+                style={({ pressed }) => [
+                  styles.pickerRow,
+                  pressed && styles.pickerRowPressed,
+                ]}
+              >
+                <Text style={styles.pickerRowText}>{c.name}</Text>
               </Pressable>
             ))}
           </ScrollView>
@@ -2319,7 +2490,16 @@ export default function TransactionsScreen() {
             </View>
           ) : (
             <View style={styles.txnTableWrap}>
-              {txns.map((t) => {
+              {txnsByYearMonth.map((yg) => (
+                <View key={yg.year} style={styles.ledgerYearGroup}>
+                  <Text style={styles.ledgerYearHeading}>{yg.year}</Text>
+                  {yg.months.map((mg) => (
+                    <View
+                      key={`${yg.year}-${mg.month}`}
+                      style={styles.ledgerMonthGroup}
+                    >
+                      <Text style={styles.ledgerMonthHeading}>{mg.label}</Text>
+                      {mg.transactions.map((t) => {
                 const accName =
                   accountById.get(String(t.account))?.name ?? "Account";
                 const hasPerson = t.person != null && t.person !== "";
@@ -2442,9 +2622,7 @@ export default function TransactionsScreen() {
                             ]}
                             numberOfLines={1}
                           >
-                            {dateFilterMode !== "period"
-                              ? formatFullDateWithWeekday(t.txn_date)
-                              : formatShortWeekdayDay(t.txn_date)}
+                            {formatDateDDMMYY(t.txn_date)}
                           </Text>
                         </View>
                         <Pressable
@@ -2492,6 +2670,7 @@ export default function TransactionsScreen() {
                             {t.category
                               ? ` · ${categoryById.get(String(t.category))?.name ?? "Category"}`
                               : ""}
+                            {t.personal_type ? ` · ${t.personal_type}` : ""}
                           </Text>
                           <View style={styles.cellTypeRow}>
                             <View
@@ -2518,7 +2697,11 @@ export default function TransactionsScreen() {
                     </View>
                   </View>
                 );
-              })}
+                      })}
+                    </View>
+                  ))}
+                </View>
+              ))}
             </View>
           )}
         </ScrollView>
@@ -3266,6 +3449,29 @@ const styles = StyleSheet.create({
   list: { gap: 10, paddingBottom: 12 },
   tableList: { paddingBottom: 24, paddingTop: 2 },
   txnTableWrap: { gap: 0 },
+  ledgerYearGroup: {
+    marginBottom: 8,
+  },
+  ledgerYearHeading: {
+    color: "#0B0B0B",
+    fontFamily: "Poppins_800ExtraBold",
+    fontSize: 22,
+    marginTop: 4,
+    marginBottom: 4,
+  },
+  ledgerMonthGroup: {
+    marginBottom: 10,
+  },
+  ledgerMonthHeading: {
+    color: "#6B6B6B",
+    fontFamily: "Poppins_600SemiBold",
+    fontSize: 12,
+    paddingVertical: 6,
+    paddingHorizontal: 2,
+    borderBottomWidth: 1,
+    borderBottomColor: "#E7E7E7",
+    marginBottom: 4,
+  },
   tableTitle: {
     color: "#0B0B0B",
     fontFamily: "Poppins_700Bold",
@@ -3476,26 +3682,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#F4F7FF",
   },
   cellTypePillTransferText: { color: "#2F4F8C" },
-  cellTypePillLoanGiven: {
-    borderColor: "#E6D1F4",
-    backgroundColor: "#FAF5FF",
-  },
-  cellTypePillLoanGivenText: { color: "#6B3FA0" },
-  cellTypePillLoanTaken: {
-    borderColor: "#F6D8C2",
-    backgroundColor: "#FFF8F2",
-  },
-  cellTypePillLoanTakenText: { color: "#A65A21" },
-  cellTypePillRepaymentIn: {
-    borderColor: "#C7E8ED",
-    backgroundColor: "#F2FBFD",
-  },
-  cellTypePillRepaymentInText: { color: "#1F6F7A" },
-  cellTypePillRepaymentOut: {
-    borderColor: "#E4E4E4",
-    backgroundColor: "#F8F8F8",
-  },
-  cellTypePillRepaymentOutText: { color: "#555555" },
   cellMoney: {
     width: 62,
     flexShrink: 0,
