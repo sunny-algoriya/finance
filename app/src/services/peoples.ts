@@ -257,6 +257,39 @@ export async function getPersonLedger(
   return normalizeLedger(res.data);
 }
 
+export async function downloadPersonLedgerPdf(
+  id: People["id"],
+  query: PersonLedgerQuery = {}
+): Promise<{ data: ArrayBuffer; filename: string }> {
+  const params: Record<string, string | number> = {};
+  const y = query.year;
+  const m = query.month;
+  if (y !== undefined && y !== null && y !== "") {
+    params.year = typeof y === "number" ? y : String(y).trim();
+  }
+  if (m !== undefined && m !== null && m !== "") {
+    params.month = typeof m === "number" ? m : String(m).trim();
+  }
+  const cat = query.category;
+  if (cat === "none") {
+    params.category = "none";
+  } else if (cat !== undefined && cat !== null && cat !== "") {
+    params.category = typeof cat === "number" ? cat : String(cat).trim();
+  }
+  if (query.group_by_category) {
+    params.group_by_category = "true";
+  }
+
+  const res = await api.get(`/people/${id}/ledger-pdf/`, {
+    params: Object.keys(params).length ? params : undefined,
+    responseType: "arraybuffer",
+  });
+  const cd = String(res.headers?.["content-disposition"] ?? "");
+  const mFile = cd.match(/filename="?([^"]+)"?/i);
+  const filename = mFile?.[1] ? String(mFile[1]) : `person_ledger_${id}.pdf`;
+  return { data: res.data, filename };
+}
+
 export const PERSONAL_TYPES = ["gave", "got", "settle"] as const;
 
 export type PersonalType = (typeof PERSONAL_TYPES)[number];

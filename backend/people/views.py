@@ -1,9 +1,12 @@
 from decimal import Decimal
 
+from django.http import HttpResponse
 from django.db.models import Count, F, Sum
 from django.db.models.functions import Lower
 from category.models import Category
 from django_filters.rest_framework import DjangoFilterBackend
+from reportlab.lib.pagesizes import A4
+from reportlab.pdfgen import canvas
 from rest_framework.decorators import action
 from rest_framework.exceptions import ValidationError
 from rest_framework.filters import SearchFilter
@@ -104,6 +107,12 @@ def _ledger_txn_row_dict(t):
     }
 
 
+def _parse_bool_flag(value, default=False):
+    if value is None:
+        return default
+    return str(value).strip().lower() in ("1", "true", "yes")
+
+
 class PersonViewSet(BaseModelViewSet):
     serializer_class = PersonSerializer
     filter_backends = [DjangoFilterBackend, SearchFilter]
@@ -113,26 +122,7 @@ class PersonViewSet(BaseModelViewSet):
     def get_queryset(self):
         return Person.objects.filter(user=self.request.user).order_by(Lower("name"), "name")
 
-    @action(detail=True, methods=["get"], url_path="ledger")
-    def ledger(self, request, pk=None):
-        """
-        Credit/debit ledger for this person across your transactions.
-
-        Query: year, month, year_month=YYYY-MM, account=<account_id> (all optional)
-        Optional: category=<id> or category=none (uncategorized) to filter rows and totals.
-        Optional: group_by_category=true to include a transactions list under each entry in
-        categories (distinct categories for the period; still uses category filter for top-level
-        transactions and totals).
-        Optional: include_entries=false to return totals only (no transaction lines).
-
-        Response includes ``by_year_month``: years (desc), each with months (desc) and
-        ``transactions`` lists (same rows as top-level ``transactions``, grouped).
-
-        Totals ``total_credit``, ``total_debit``, ``net``, and ``gross_total`` (credit + debit)
-        are computed on the same filtered queryset as ``transactions`` (year, month, category,
-        account filters).
-        """
-        person = self.get_object()
+    def _build_ledger_payload(self, request, person):
         qp = request.query_params
         year_int, month_int = parse_year_month_query_params(qp)
 
@@ -188,11 +178,7 @@ class PersonViewSet(BaseModelViewSet):
         td = agg["total_debit"] or Decimal("0")
         gross = tc + td
 
-        group_by_category = str(qp.get("group_by_category", "")).lower() in (
-            "1",
-            "true",
-            "yes",
-        )
+        group_by_category = _parse_bool_flag(qp.get("group_by_category"), default=False)
 
         payload = {
             "person": person.id,
@@ -232,8 +218,94 @@ class PersonViewSet(BaseModelViewSet):
         else:
             payload["transactions"] = []
             payload["by_year_month"] = []
+        return payload
 
+    @action(detail=True, methods=["get"], url_path="ledger")
+    def ledger(self, request, pk=None):
+        """
+        Credit/debit ledger for this person across your transactions.
+
+        Query: year, month, year_month=YYYY-MM, account=<account_id> (all optional)
+        Optional: category=<id> or category=none (uncategorized) to filter rows and totals.
+        Optional: group_by_category=true to include a transactions list under each entry in
+        categories (distinct categories for the period; still uses category filter for top-level
+        transactions and totals).
+        Optional: include_entries=false to return totals only (no transaction lines).
+
+        Response includes ``by_year_month``: years (desc), each with months (desc) and
+        ``transactions`` lists (same rows as top-level ``transactions``, grouped).
+
+        Totals ``total_credit``, ``total_debit``, ``net``, and ``gross_total`` (credit + debit)
+        are computed on the same filtered queryset as ``transactions`` (year, month, category,
+        account filters).
+        """
+        person = self.get_object()
+        payload = self._build_ledger_payload(request, person)
         return Response(payload)
+
+    @action(detail=True, methods=["get"], url_path="ledger-pdf")
+    def ledger_pdf(self, request, pk=None):
+        person = self.get_object()
+        payload = self._build_ledger_payload(request, person)
+
+        response = HttpResponse(content_type="application/pdf")
+        safe_name = "".join(ch if ch.isalnum() else "_" for ch in person.name).strip("_")
+        if not safe_name:
+            safe_name = f"person_{person.id}"
+        response["Content-Disposition"] = f'attachment; filename="ledger_{safe_name}.pdf"'
+
+        p = canvas.Canvas(response, pagesize=A4)
+        _, height = A4
+        x = 40
+        y = height - 50
+
+        def write_line(text, step=16, font="Helvetica", size=10):
+            nonlocal y
+            if y <= 40:
+                p.showPage()
+                y = height - 50
+            p.setFont(font, size)
+            p.drawString(x, y, str(text))
+            y -= step
+
+        write_line("Person Ledger Report", step=20, font="Helvetica-Bold", size=14)
+        write_line(f"Person: {payload['person_name']}", font="Helvetica-Bold")
+        write_line(
+            f"Filters: year={payload['year'] or 'all'}, month={payload['month'] or 'all'}, "
+            f"account={payload['account'] or 'all'}, category={payload['category'] or 'all'}",
+            step=14,
+        )
+        write_line("", step=8)
+        write_line(f"Total credit: {payload['total_credit']}")
+        write_line(f"Total debit: {payload['total_debit']}")
+        write_line(f"Net: {payload['net']}")
+        write_line(f"Gross total: {payload['gross_total']}")
+        write_line(f"Transaction count: {payload['transaction_count']}")
+        write_line("", step=10)
+        write_line("Transactions", font="Helvetica-Bold")
+
+        transactions = payload.get("transactions", [])
+        if not transactions:
+            write_line("No transactions for selected filters.")
+        else:
+            for idx, row in enumerate(transactions, start=1):
+                category_name = row.get("category_name") or "Uncategorized"
+                write_line(
+                    f"{idx}. {row.get('txn_date')} | {row.get('type', '').upper()} | "
+                    f"{row.get('amount')} | {row.get('account_name')} | {category_name}",
+                    step=12,
+                    size=9,
+                )
+                description = row.get("description") or ""
+                remark = row.get("remark") or ""
+                if description:
+                    write_line(f"   Desc: {description}", step=11, size=9)
+                if remark:
+                    write_line(f"   Remark: {remark}", step=11, size=9)
+                write_line("", step=6)
+
+        p.save()
+        return response
 
     @action(detail=True, methods=["get"], url_path="loan-report")
     def loan_report(self, request, pk=None):

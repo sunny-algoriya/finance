@@ -26,6 +26,7 @@ import {
   IS_WEB,
 } from "../components/transactions";
 import {
+  downloadPersonLedgerPdf,
   getPersonLedger,
   type PersonLedger,
   type PersonLedgerCategory,
@@ -338,6 +339,42 @@ export default function PersonLedgerScreen() {
     await loadLedger(filterYear, filterMonth, categoryFilter);
   }
 
+  async function exportPdf() {
+    try {
+      const { data, filename } = await downloadPersonLedgerPdf(personId, {
+        ...(filterYear.trim() ? { year: filterYear.trim() } : {}),
+        ...(filterMonth.trim() ? { month: filterMonth.trim() } : {}),
+        ...(categoryFilter === null
+          ? {}
+          : {
+              category: categoryFilter,
+            }),
+      });
+
+      if (!IS_WEB) {
+        Alert.alert("PDF Ready", "PDF export is currently supported on web download.");
+        return;
+      }
+
+      const blob = new Blob([data], { type: "application/pdf" });
+      const url = window.URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = filename || "person-ledger.pdf";
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (err: any) {
+      const message =
+        err?.response?.data?.detail ??
+        err?.response?.data?.message ??
+        err?.message ??
+        "Failed to export PDF.";
+      Alert.alert("Error", String(message));
+    }
+  }
+
   async function onApplyBulkUpdate(patch: BulkUpdatePatch) {
     if (selectedTxnIds.length === 0 || isBulkSaving) return;
     setIsBulkSaving(true);
@@ -436,15 +473,26 @@ export default function PersonLedgerScreen() {
         <Text style={styles.topTitle} numberOfLines={1}>
           Ledger
         </Text>
-        <Pressable
-          onPress={openCreate}
-          style={({ pressed }) => [
-            styles.topAddBtn,
-            pressed && styles.topAddBtnPressed,
-          ]}
-        >
-          <Text style={styles.topAddBtnText}>Add</Text>
-        </Pressable>
+        <View style={styles.topRightActions}>
+          <Pressable
+            onPress={() => void exportPdf()}
+            style={({ pressed }) => [
+              styles.topPdfBtn,
+              pressed && styles.topPdfBtnPressed,
+            ]}
+          >
+            <Text style={styles.topPdfBtnText}>PDF</Text>
+          </Pressable>
+          <Pressable
+            onPress={openCreate}
+            style={({ pressed }) => [
+              styles.topAddBtn,
+              pressed && styles.topAddBtnPressed,
+            ]}
+          >
+            <Text style={styles.topAddBtnText}>Add</Text>
+          </Pressable>
+        </View>
       </View>
 
       <Text style={styles.personName}>{displayName}</Text>
@@ -762,6 +810,27 @@ const styles = StyleSheet.create({
   topAddBtnText: {
     color: "#0B0B0B",
     fontFamily: "Poppins_600SemiBold",
+    fontSize: 13,
+  },
+  topRightActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  topPdfBtn: {
+    minWidth: 56,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: "#1E3A5F",
+    backgroundColor: "#1E3A5F",
+    alignItems: "center",
+  },
+  topPdfBtnPressed: { opacity: 0.88 },
+  topPdfBtnText: {
+    color: "#FFFFFF",
+    fontFamily: "Poppins_700Bold",
     fontSize: 13,
   },
   personName: {
