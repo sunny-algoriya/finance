@@ -345,59 +345,23 @@ export async function listTransactionsByYearMonth(
   };
 }
 
-/** Backend caps `page_size` (see `max_page_size`); fetches every page and concatenates results. */
-const ALL_PAGES_MAX_CHUNK = 500;
+/** Request a single large page for browse screens. */
+const ALL_PAGES_SINGLE_REQUEST_SIZE = 10000;
 
 export async function listTransactionsAllPages(
   params: Omit<TransactionListParams, "page"> & { page_size?: number },
 ): Promise<PaginatedTransactionList> {
-  const pageSize = Math.min(
-    Math.max(
-      1,
-      Number(
-        params.page_size !== undefined && params.page_size !== null
-          ? params.page_size
-          : ALL_PAGES_MAX_CHUNK,
-      ),
-    ),
-    ALL_PAGES_MAX_CHUNK,
-  );
-  let page = 1;
-  const all: Transaction[] = [];
-  let last: PaginatedTransactionList | null = null;
-  for (let guard = 0; guard < 5000; guard += 1) {
-    const res = await listTransactionsByYearMonth({
-      ...params,
-      page,
-      page_size: pageSize,
-    });
-    all.push(...res.results);
-    last = res;
-    if (!res.next) break;
-    page += 1;
-  }
-  if (!last) {
-    return {
-      results: [],
-      count: 0,
-      next: null,
-      previous: null,
-      total_credit: "0",
-      total_debit: "0",
-      total_flow: "0",
-      totals_by_txn_type: { income: "0", expense: "0", transfer: "0" },
-    };
-  }
-  return {
-    results: all,
-    count: last.count,
-    next: null,
-    previous: null,
-    total_credit: last.total_credit,
-    total_debit: last.total_debit,
-    total_flow: last.total_flow,
-    totals_by_txn_type: last.totals_by_txn_type,
-  };
+  const pageSize =
+    params.page_size !== undefined && params.page_size !== null
+      ? Number(params.page_size)
+      : ALL_PAGES_SINGLE_REQUEST_SIZE;
+  return listTransactionsByYearMonth({
+    ...params,
+    page: 1,
+    page_size: Number.isFinite(pageSize) && pageSize > 0
+      ? pageSize
+      : ALL_PAGES_SINGLE_REQUEST_SIZE,
+  });
 }
 
 export async function createTransaction(

@@ -53,6 +53,7 @@ export default function TransactionBrowseScreen() {
     String(now.getMonth() + 1).padStart(2, "0"),
   );
   const [dateAll, setDateAll] = React.useState(false);
+  const [yearOnly, setYearOnly] = React.useState(false);
 
   const [txnTypeOn, setTxnTypeOn] = React.useState<
     Record<TransactionTxnType, boolean>
@@ -99,6 +100,7 @@ export default function TransactionBrowseScreen() {
     () =>
       JSON.stringify({
         dateAll,
+        yearOnly,
         selectedYear,
         selectedMonth,
         types: selectedTxnTypes,
@@ -108,6 +110,7 @@ export default function TransactionBrowseScreen() {
       }),
     [
       dateAll,
+      yearOnly,
       selectedYear,
       selectedMonth,
       selectedTxnTypes,
@@ -175,7 +178,7 @@ export default function TransactionBrowseScreen() {
         };
         if (!dateAll) {
           params.year = selectedYear;
-          params.month = selectedMonth;
+          if (!yearOnly) params.month = selectedMonth;
         }
         if (filterPersonId) {
           params.person = filterPersonId;
@@ -211,6 +214,7 @@ export default function TransactionBrowseScreen() {
     [
       selectedTxnTypes,
       dateAll,
+      yearOnly,
       selectedYear,
       selectedMonth,
       filterPersonId,
@@ -328,8 +332,24 @@ export default function TransactionBrowseScreen() {
           {!dateAll ? (
             <View style={styles.periodRow}>
               <Text style={styles.periodField}>{selectedYear}</Text>
-              <Text style={styles.periodSep}>/</Text>
-              <Text style={styles.periodField}>{selectedMonth}</Text>
+              {yearOnly ? null : (
+                <>
+                  <Text style={styles.periodSep}>/</Text>
+                  <Text style={styles.periodField}>{selectedMonth}</Text>
+                </>
+              )}
+              <Pressable
+                onPress={() => setYearOnly((v) => !v)}
+                style={({ pressed }) => [
+                  styles.chip,
+                  yearOnly && styles.chipOn,
+                  pressed && styles.chipPressed,
+                ]}
+              >
+                <Text style={[styles.chipText, yearOnly && styles.chipTextOn]}>
+                  All months
+                </Text>
+              </Pressable>
               <Pressable
                 onPress={() => {
                   const y = Number(selectedYear);
@@ -348,24 +368,28 @@ export default function TransactionBrowseScreen() {
               >
                 <Text style={styles.miniBtnText}>+Y</Text>
               </Pressable>
-              <Pressable
-                onPress={() => {
-                  const m = Math.max(1, Number(selectedMonth) - 1);
-                  setSelectedMonth(String(m).padStart(2, "0"));
-                }}
-                style={styles.miniBtn}
-              >
-                <Text style={styles.miniBtnText}>−M</Text>
-              </Pressable>
-              <Pressable
-                onPress={() => {
-                  const m = Math.min(12, Number(selectedMonth) + 1);
-                  setSelectedMonth(String(m).padStart(2, "0"));
-                }}
-                style={styles.miniBtn}
-              >
-                <Text style={styles.miniBtnText}>+M</Text>
-              </Pressable>
+              {!yearOnly ? (
+                <>
+                  <Pressable
+                    onPress={() => {
+                      const m = Math.max(1, Number(selectedMonth) - 1);
+                      setSelectedMonth(String(m).padStart(2, "0"));
+                    }}
+                    style={styles.miniBtn}
+                  >
+                    <Text style={styles.miniBtnText}>−M</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => {
+                      const m = Math.min(12, Number(selectedMonth) + 1);
+                      setSelectedMonth(String(m).padStart(2, "0"));
+                    }}
+                    style={styles.miniBtn}
+                  >
+                    <Text style={styles.miniBtnText}>+M</Text>
+                  </Pressable>
+                </>
+              ) : null}
             </View>
           ) : null}
         </View>
@@ -646,6 +670,12 @@ export default function TransactionBrowseScreen() {
           </>
         )}
       </ScrollView>
+      {isLoading ? (
+        <View style={styles.loadingOverlay}>
+          <ActivityIndicator size="large" color="#0B0B0B" />
+          <Text style={styles.loadingOverlayText}>Loading transactions...</Text>
+        </View>
+      ) : null}
 
       <Modal
         visible={isPersonPickerOpen}
@@ -979,6 +1009,18 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
   center: { paddingVertical: 24, alignItems: "center" },
+  loadingOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(255,255,255,0.72)",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  loadingOverlayText: {
+    fontFamily: "Poppins_600SemiBold",
+    fontSize: 12,
+    color: "#0B0B0B",
+  },
   countLine: {
     fontFamily: "Poppins_600SemiBold",
     fontSize: 12,

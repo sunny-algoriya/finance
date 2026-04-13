@@ -317,7 +317,8 @@ class TransactionViewSet(BaseModelViewSet):
                 raise ValidationError({"year": "Invalid year. Use an integer like 2026."})
             qs = qs.filter(txn_date__year=year_int)
 
-        if month_raw is not None:
+        # Allow year-only mode with month omitted, empty, or explicit "all".
+        if month_raw is not None and str(month_raw).strip().lower() not in {"", "all", "any", "*"}:
             try:
                 month_int = int(month_raw)
             except Exception:
@@ -396,12 +397,17 @@ class TransactionViewSet(BaseModelViewSet):
         Per-row amount is credit + debit (only one side is non-zero). Same filtered queryset
         as list results: total_flow and sums split by txn_type (income / expense / transfer).
         """
-        flow_agg = queryset.aggregate(s=Sum(F("credit") + F("debit")))["s"] or Decimal("0")
-        by_type = {c[0]: Decimal("0") for c in Transaction.TransactionType.choices}
-        for row in queryset.values("txn_type").annotate(flow=Sum(F("credit") + F("debit"))):
-            t = row["txn_type"]
-            if t in by_type:
-                by_type[t] = row["flow"] or Decimal("0")
+        base = queryset.order_by()
+        flow_agg = base.aggregate(s=Sum(F("credit") + F("debit")))["s"] or Decimal("0")
+        by_type = {}
+        for t, _label in Transaction.TransactionType.choices:
+            agg_t = base.filter(txn_type=t).aggregate(
+                s_credit=Sum("credit"),
+                s_debit=Sum("debit"),
+            )
+            tc = agg_t["s_credit"] or Decimal("0")
+            td = agg_t["s_debit"] or Decimal("0")
+            by_type[t] = tc + td
         return {
             "total_flow": self._money_str_decimal(flow_agg),
             "totals_by_txn_type": {
