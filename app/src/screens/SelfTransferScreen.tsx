@@ -493,14 +493,14 @@ const styles = StyleSheet.create({
   },
   kicker: {
     color: "#6B6B6B",
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 11,
     letterSpacing: 1.5,
     textTransform: "uppercase",
   },
   title: {
     color: "#0B0B0B",
-    fontFamily: "Poppins_800ExtraBold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 24,
     marginTop: 2,
   },
@@ -523,12 +523,12 @@ const styles = StyleSheet.create({
   refreshRowPressed: { backgroundColor: "#F5F5F5" },
   refreshText: {
     color: "#0B0B0B",
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 12,
   },
   metaLine: {
     fontSize: 12,
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
     color: "#6B6B6B",
     marginBottom: 10,
   },
@@ -543,7 +543,7 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     fontSize: 12,
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
     color: "#6B6B6B",
   },
   pagerBtns: {
@@ -562,7 +562,7 @@ const styles = StyleSheet.create({
   pagerIconBtnDisabled: { opacity: 0.55 },
   pagerPageText: {
     fontSize: 13,
-    fontFamily: "Poppins_700Bold",
+    fontFamily: "Poppins_400Regular",
     color: "#0B0B0B",
     minWidth: 24,
     textAlign: "center",
@@ -578,7 +578,7 @@ const styles = StyleSheet.create({
   },
   emptyTitle: {
     fontSize: 14,
-    fontFamily: "Poppins_700Bold",
+    fontFamily: "Poppins_400Regular",
     color: "#0B0B0B",
   },
   card: {
@@ -597,12 +597,12 @@ const styles = StyleSheet.create({
   },
   cardDate: {
     fontSize: 13,
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
     color: "#0B0B0B",
   },
   cardAmount: {
     fontSize: 16,
-    fontFamily: "Poppins_800ExtraBold",
+    fontFamily: "Poppins_400Regular",
     color: "#0B0B0B",
   },
   routeRow: {
@@ -614,7 +614,7 @@ const styles = StyleSheet.create({
   routeCol: { flex: 1, minWidth: 0 },
   routeLabel: {
     fontSize: 10,
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
     color: "#9A9A9A",
     textTransform: "uppercase",
     letterSpacing: 0.5,
@@ -622,7 +622,7 @@ const styles = StyleSheet.create({
   },
   routeName: {
     fontSize: 13,
-    fontFamily: "Poppins_700Bold",
+    fontFamily: "Poppins_400Regular",
     color: "#0B0B0B",
   },
   routeArrow: { marginTop: 12 },
@@ -642,7 +642,7 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     fontSize: 11,
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
     color: "#6B6B6B",
   },
   inlineEditBtn: {
@@ -683,7 +683,7 @@ const styles = StyleSheet.create({
     paddingVertical: 5,
     borderRadius: 8,
     fontSize: 11,
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
     overflow: "hidden",
   },
   cardActions: {
@@ -705,7 +705,7 @@ const styles = StyleSheet.create({
   deleteBothBtnDisabled: { opacity: 0.45 },
   deleteBothText: {
     color: "#FFFFFF",
-    fontFamily: "Poppins_700Bold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 12,
   },
 });

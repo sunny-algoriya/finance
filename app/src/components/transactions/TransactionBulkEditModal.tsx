@@ -33,6 +33,59 @@ export type BulkUpdatePatch = {
   personal_type?: Transaction["personal_type"] | null;
 };
 
+/** One row’s person/category for inferring common values when opening bulk edit. */
+export type BulkEditRowSnapshot = {
+  person?: string | number | null;
+  category?: string | number | null;
+};
+
+function inferBulkPersonCategory(
+  snap: BulkEditRowSnapshot[],
+  people: People[],
+  categories: Category[],
+): {
+  personId: string | null;
+  personQuery: string;
+  categoryId: string | null;
+  categoryQuery: string;
+} {
+  if (snap.length === 0) {
+    return {
+      personId: null,
+      personQuery: "",
+      categoryId: null,
+      categoryQuery: "",
+    };
+  }
+
+  const normPerson = (p: unknown) =>
+    p === undefined || p === null || p === "" ? null : String(p);
+  const normCategory = (c: unknown) =>
+    c === undefined || c === null || c === "" ? null : String(c);
+
+  const personVals = snap.map((s) => normPerson(s.person));
+  const allPersonEqual = personVals.every((p) => p === personVals[0]);
+  let personId: string | null = null;
+  let personQuery = "";
+  if (allPersonEqual && personVals[0] !== null) {
+    personId = personVals[0];
+    personQuery =
+      people.find((p) => String(p.id) === personId)?.name ?? "";
+  }
+
+  const catVals = snap.map((s) => normCategory(s.category));
+  const allCatEqual = catVals.every((c) => c === catVals[0]);
+  let categoryId: string | null = null;
+  let categoryQuery = "";
+  if (allCatEqual && catVals[0] !== null) {
+    categoryId = catVals[0];
+    categoryQuery =
+      categories.find((c) => String(c.id) === categoryId)?.name ?? "";
+  }
+
+  return { personId, personQuery, categoryId, categoryQuery };
+}
+
 export type TransactionBulkEditModalProps = {
   visible: boolean;
   onRequestClose: () => void;
@@ -40,6 +93,11 @@ export type TransactionBulkEditModalProps = {
   categories: Category[];
   isSaving: boolean;
   onApply: (patch: BulkUpdatePatch) => void | Promise<void>;
+  /**
+   * Selected rows used to pre-fill person & category when all selected share the same value.
+   * Omit or empty to start with no selection (same as before).
+   */
+  selectionSnapshot?: BulkEditRowSnapshot[];
 };
 
 export function TransactionBulkEditModal({
@@ -49,6 +107,7 @@ export function TransactionBulkEditModal({
   categories,
   isSaving,
   onApply,
+  selectionSnapshot,
 }: TransactionBulkEditModalProps) {
   const [bulkPersonId, setBulkPersonId] = React.useState<string | null>(null);
   const [bulkCategoryId, setBulkCategoryId] = React.useState<string | null>(null);
@@ -61,13 +120,22 @@ export function TransactionBulkEditModal({
 
   React.useEffect(() => {
     if (!visible) return;
-    setBulkPersonId(null);
-    setBulkCategoryId(null);
+    const snap = selectionSnapshot ?? [];
+    if (snap.length === 0) {
+      setBulkPersonId(null);
+      setBulkCategoryId(null);
+      setBulkPersonQuery("");
+      setBulkCategoryQuery("");
+    } else {
+      const inferred = inferBulkPersonCategory(snap, people, categories);
+      setBulkPersonId(inferred.personId);
+      setBulkCategoryId(inferred.categoryId);
+      setBulkPersonQuery(inferred.personQuery);
+      setBulkCategoryQuery(inferred.categoryQuery);
+    }
     setBulkTxnType(null);
     setBulkPersonalMode("keep");
-    setBulkPersonQuery("");
-    setBulkCategoryQuery("");
-  }, [visible]);
+  }, [visible, selectionSnapshot, people, categories]);
 
   const peopleFilteredForBulk = React.useMemo(() => {
     const q = bulkPersonQuery.trim().toLowerCase();

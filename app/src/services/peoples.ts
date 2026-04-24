@@ -18,6 +18,19 @@ export type PeopleListParams = {
   search?: string;
 };
 
+export type PeopleListSummary = {
+  people_count: number;
+  gave: string;
+  got: string;
+  settled: string;
+  balance: string;
+};
+
+export type PeopleListResult = {
+  results: People[];
+  summary: PeopleListSummary;
+};
+
 export type PeopleCreateInput = {
   name: string;
 };
@@ -60,12 +73,33 @@ function normalizePeopleList(raw: any): People[] {
   return items.map(normalizePeople);
 }
 
+function normalizePeopleSummary(raw: any): PeopleListSummary {
+  const s = raw?.summary ?? {};
+  return {
+    people_count: typeof s?.people_count === "number" ? s.people_count : 0,
+    gave: String(s?.gave ?? "0.00"),
+    got: String(s?.got ?? "0.00"),
+    settled: String(s?.settled ?? "0.00"),
+    balance: String(s?.balance ?? "0.00"),
+  };
+}
+
 export async function listPeoples(params: PeopleListParams = {}): Promise<People[]> {
+  const out = await listPeoplesWithSummary(params);
+  return out.results;
+}
+
+export async function listPeoplesWithSummary(
+  params: PeopleListParams = {}
+): Promise<PeopleListResult> {
   const search = params.search?.trim();
   const res = await api.get("/people/?page_size=1000", {
     params: search ? { search } : undefined,
   });
-  return normalizePeopleList(res.data);
+  return {
+    results: normalizePeopleList(res.data),
+    summary: normalizePeopleSummary(res.data),
+  };
 }
 
 export async function createPeople(input: PeopleCreateInput): Promise<People> {

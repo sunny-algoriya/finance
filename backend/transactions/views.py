@@ -134,6 +134,12 @@ class TransactionViewSet(BaseModelViewSet):
         year_raw = qp.get("year") or qp.get("filter_year") or qp.get("filter[year]")
         month_raw = qp.get("month") or qp.get("filter_month") or qp.get("filter[month]")
         year_month = qp.get("year_month")
+        specific_date_raw = (
+            qp.get("specific_date")
+            or qp.get("txn_date")
+            or qp.get("filter_specific_date")
+            or qp.get("filter[specific_date]")
+        )
         start_date_raw = qp.get("start_date") or qp.get("filter_start_date") or qp.get("filter[start_date]")
         end_date_raw = qp.get("end_date") or qp.get("filter_end_date") or qp.get("filter[end_date]")
         amount_min_raw = qp.get("amount_min") or qp.get("filter_amount_min") or qp.get("filter[amount_min]") or qp.get("min_amount")
@@ -327,6 +333,13 @@ class TransactionViewSet(BaseModelViewSet):
                 raise ValidationError({"month": "month must be between 1 and 12."})
             qs = qs.filter(txn_date__month=month_int)
 
+        if specific_date_raw is not None and str(specific_date_raw).strip():
+            try:
+                specific_date_obj = date.fromisoformat(str(specific_date_raw).strip())
+            except Exception:
+                raise ValidationError({"specific_date": 'Invalid specific_date. Use "YYYY-MM-DD".'})
+            qs = qs.filter(txn_date=specific_date_obj)
+
         start_date_obj = None
         if start_date_raw is not None and str(start_date_raw).strip():
             try:
@@ -352,7 +365,10 @@ class TransactionViewSet(BaseModelViewSet):
                 amount_min = Decimal(str(amount_min_raw).strip())
             except (InvalidOperation, ValueError):
                 raise ValidationError({"amount_min": "Invalid amount_min. Use a numeric value."})
-            qs = qs.filter(Q(credit__gte=amount_min) | Q(debit__gte=amount_min))
+            qs = qs.filter(
+                Q(credit__gt=0, credit__gte=amount_min)
+                | Q(debit__gt=0, debit__gte=amount_min)
+            )
 
         amount_max = None
         if amount_max_raw is not None and str(amount_max_raw).strip():
@@ -360,7 +376,10 @@ class TransactionViewSet(BaseModelViewSet):
                 amount_max = Decimal(str(amount_max_raw).strip())
             except (InvalidOperation, ValueError):
                 raise ValidationError({"amount_max": "Invalid amount_max. Use a numeric value."})
-            qs = qs.filter(Q(credit__lte=amount_max) | Q(debit__lte=amount_max))
+            qs = qs.filter(
+                Q(credit__gt=0, credit__lte=amount_max)
+                | Q(debit__gt=0, debit__lte=amount_max)
+            )
 
         if amount_min is not None and amount_max is not None and amount_min > amount_max:
             raise ValidationError({"amount_max": "amount_max must be >= amount_min."})

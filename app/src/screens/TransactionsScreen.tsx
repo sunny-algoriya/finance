@@ -18,9 +18,7 @@ import * as DocumentPicker from "expo-document-picker";
 import { listAccounts, type Account } from "../services/accounts";
 import { listCategories, type Category } from "../services/categories";
 import { listPeoples, type People } from "../services/peoples";
-import {
-  formatDateDDMMYY,
-} from "../utils/date";
+import { formatDateDDMMYY } from "../utils/date";
 import { groupLedgerRowsByYearMonth } from "../utils/ledgerGrouping";
 import { formatMoney2 } from "../utils/money";
 import AppTabScreen from "../components/AppTabScreen";
@@ -42,6 +40,7 @@ import {
   TransactionBulkEditModal,
   TransactionBulkSelectionBar,
   TransactionFormModal,
+  type BulkEditRowSnapshot,
   type BulkUpdatePatch,
   type TransactionEditState,
 } from "../components/transactions";
@@ -406,12 +405,17 @@ export default function TransactionsScreen() {
   const [filterAmountExactInput, setFilterAmountExactInput] = React.useState(
     () => (IS_WEB ? (getQueryParam("amount") ?? "") : ""),
   );
+  const [filterSpecificDateInput, setFilterSpecificDateInput] = React.useState(
+    () => (IS_WEB ? (getQueryParam("specific_date") ?? "") : ""),
+  );
   const [filterAmountMinDebounced, setFilterAmountMinDebounced] =
     React.useState("");
   const [filterAmountMaxDebounced, setFilterAmountMaxDebounced] =
     React.useState("");
   const [filterAmountExactDebounced, setFilterAmountExactDebounced] =
     React.useState(() => (IS_WEB ? (getQueryParam("amount") ?? "") : ""));
+  const [filterSpecificDateDebounced, setFilterSpecificDateDebounced] =
+    React.useState(() => (IS_WEB ? (getQueryParam("specific_date") ?? "") : ""));
 
   const [dateFilterMode, setDateFilterMode] = React.useState<
     "period" | "all" | "custom"
@@ -457,6 +461,20 @@ export default function TransactionsScreen() {
   }, [filterAmountExactDebounced]);
 
   React.useEffect(() => {
+    if (!IS_WEB) return;
+    const url = new URL(window.location.href);
+    if (
+      filterSpecificDateDebounced &&
+      isValidISODate(filterSpecificDateDebounced)
+    ) {
+      url.searchParams.set("specific_date", filterSpecificDateDebounced);
+    } else {
+      url.searchParams.delete("specific_date");
+    }
+    window.history.replaceState(null, "", url.toString());
+  }, [filterSpecificDateDebounced]);
+
+  React.useEffect(() => {
     const handle = setTimeout(() => {
       setFilterAmountMinDebounced(filterAmountMinInput.trim());
     }, 400);
@@ -476,6 +494,13 @@ export default function TransactionsScreen() {
     }, TXN_AMOUNT_FILTER_DEBOUNCE_MS);
     return () => clearTimeout(handle);
   }, [filterAmountExactInput]);
+
+  React.useEffect(() => {
+    const handle = setTimeout(() => {
+      setFilterSpecificDateDebounced(filterSpecificDateInput.trim());
+    }, 400);
+    return () => clearTimeout(handle);
+  }, [filterSpecificDateInput]);
 
   React.useEffect(() => {
     const handle = setTimeout(() => {
@@ -538,6 +563,7 @@ export default function TransactionsScreen() {
         filterAmountMinDebounced,
         filterAmountMaxDebounced,
         filterAmountExactDebounced,
+        filterSpecificDateDebounced,
       ].join("|"),
     [
       selectedYear,
@@ -557,6 +583,7 @@ export default function TransactionsScreen() {
       filterAmountMinDebounced,
       filterAmountMaxDebounced,
       filterAmountExactDebounced,
+      filterSpecificDateDebounced,
     ],
   );
 
@@ -652,11 +679,22 @@ export default function TransactionsScreen() {
         const effectiveDateMode = dateModeOverride ?? dateFilterMode;
         const usePeriod = effectiveDateMode === "period";
         const useCustom = effectiveDateMode === "custom";
+        const specificDateForFilter =
+          filterSpecificDateDebounced &&
+          isValidISODate(filterSpecificDateDebounced)
+            ? filterSpecificDateDebounced
+            : undefined;
         const effectiveCustomStart = customStartDateOverride ?? customStartDate;
         const effectiveCustomEnd = customEndDateOverride ?? customEndDate;
         const txnRes = await listTransactionsByYearMonth({
-          year: usePeriod ? (yearOverride ?? selectedYear) : undefined,
-          month: usePeriod ? (monthOverride ?? selectedMonth) : undefined,
+          year:
+            !specificDateForFilter && usePeriod
+              ? (yearOverride ?? selectedYear)
+              : undefined,
+          month:
+            !specificDateForFilter && usePeriod
+              ? (monthOverride ?? selectedMonth)
+              : undefined,
           start_date: useCustom
             ? (effectiveCustomStart ?? undefined)
             : undefined,
@@ -664,6 +702,7 @@ export default function TransactionsScreen() {
           amount_min: filterAmountMinDebounced || undefined,
           amount_max: filterAmountMaxDebounced || undefined,
           amount: filterAmountExactDebounced || undefined,
+          ...(specificDateForFilter ? { specific_date: specificDateForFilter } : {}),
           account: filterAccountId ?? undefined,
           person: filterPersonId ?? undefined,
           ...(filterCategoryId
@@ -728,6 +767,7 @@ export default function TransactionsScreen() {
       filterAmountMinDebounced,
       filterAmountMaxDebounced,
       filterAmountExactDebounced,
+      filterSpecificDateDebounced,
       txnListPageSize,
     ],
   );
@@ -814,6 +854,8 @@ export default function TransactionsScreen() {
     setFilterAmountMaxInput("");
     setFilterAmountExactInput("");
     setFilterAmountExactDebounced("");
+    setFilterSpecificDateInput("");
+    setFilterSpecificDateDebounced("");
     setTxnSearchInput("");
     setTxnSearchDebounced("");
     setTxnPage(1);
@@ -830,6 +872,7 @@ export default function TransactionsScreen() {
       url.searchParams.delete("ispersonthere");
       url.searchParams.delete("isremarkthere");
       url.searchParams.delete("amount");
+      url.searchParams.delete("specific_date");
       url.searchParams.delete("description");
       window.history.replaceState(null, "", url.toString());
     }
@@ -1043,6 +1086,14 @@ export default function TransactionsScreen() {
     () => txns.map((t) => String(t.id)),
     [txns],
   );
+
+  const bulkEditSelectionSnapshot = React.useMemo((): BulkEditRowSnapshot[] => {
+    const idSet = new Set(selectedTxnIds);
+    return txns
+      .filter((t) => idSet.has(String(t.id)))
+      .map((t) => ({ person: t.person, category: t.category }));
+  }, [txns, selectedTxnIds]);
+
   const areAllVisibleSelected =
     allVisibleTxnIds.length > 0 &&
     allVisibleTxnIds.every((id) => selectedTxnIds.includes(id));
@@ -1416,6 +1467,9 @@ export default function TransactionsScreen() {
                       ? parseTxnRemarkLinkedFromSearch(window.location.search)
                       : filterRemarkLinked,
                   );
+                  setFilterSpecificDateInput(
+                    IS_WEB ? (getQueryParam("specific_date") ?? "") : "",
+                  );
                   setIsFilterSidebarOpen(true);
                 }}
                 style={({ pressed }) => [
@@ -1663,78 +1717,95 @@ export default function TransactionsScreen() {
           onPress={() => setIsFilterSidebarOpen(false)}
         />
         <View style={styles.sidebar}>
-          <View style={styles.sidebarHeader}>
-            <Text style={styles.sidebarTitle}>Filters</Text>
-            <Pressable
-              onPress={() => setIsFilterSidebarOpen(false)}
-              style={({ pressed }) => [
-                styles.closeMiniBtn,
-                pressed && styles.closeMiniBtnPressed,
-              ]}
-            >
-              <Feather name="x" size={16} color="#0B0B0B" />
-            </Pressable>
-          </View>
-
           <View style={{ gap: 12 }}>
             <View style={{ gap: 6 }}>
-              <Text style={styles.label}>Account</Text>
-              <Pressable
-                onPress={() => setIsFilterAccountPickerOpen(true)}
-                style={({ pressed }) => [
-                  styles.pickerBtn,
-                  pressed && styles.pickerBtnPressed,
-                ]}
-              >
-                <Text style={styles.pickerBtnText}>
-                  {filterAccountId
-                    ? (accountById.get(String(filterAccountId))?.name ??
-                      `Account ${filterAccountId}`)
-                    : "All"}
-                </Text>
-              </Pressable>
+              <View style={styles.bulkChipWrap}>
+                <Pressable
+                  onPress={() => {
+                    setFilterAccountId(null);
+                    if (IS_WEB) {
+                      const url = new URL(window.location.href);
+                      url.searchParams.delete("account");
+                      window.history.replaceState(null, "", url.toString());
+                    }
+                  }}
+                  style={({ pressed }) => [
+                    styles.bulkChipBtn,
+                    filterAccountId === null && styles.pickerRowActive,
+                    pressed && styles.pickerRowPressed,
+                  ]}
+                >
+                  <Text style={styles.bulkChipText}>All</Text>
+                </Pressable>
+                {accounts.map((a) => (
+                  <Pressable
+                    key={String(a.id)}
+                    onPress={() => {
+                      setFilterAccountId(String(a.id));
+                      if (IS_WEB) {
+                        const url = new URL(window.location.href);
+                        url.searchParams.set("account", String(a.id));
+                        window.history.replaceState(null, "", url.toString());
+                      }
+                    }}
+                    style={({ pressed }) => [
+                      styles.bulkChipBtn,
+                      filterAccountId === String(a.id) &&
+                        styles.pickerRowActive,
+                      pressed && styles.pickerRowPressed,
+                    ]}
+                  >
+                    <Text style={styles.bulkChipText}>{a.name}</Text>
+                  </Pressable>
+                ))}
+              </View>
+            </View>
+
+            <View
+              style={{
+                gap: 6,
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+              }}
+            >
+              <View style={{ flex: 1 }}>
+                <Pressable
+                  onPress={() => setIsFilterPersonPickerOpen(true)}
+                  style={({ pressed }) => [
+                    styles.pickerBtn,
+                    pressed && styles.pickerBtnPressed,
+                  ]}
+                >
+                  <Text style={styles.pickerBtnText}>
+                    {filterPersonId
+                      ? (peopleById.get(String(filterPersonId))?.name ??
+                        `Person ${filterPersonId}`)
+                      : "All Person"}
+                  </Text>
+                </Pressable>
+              </View>
+              <View style={{ flex: 1 }}>
+                <Pressable
+                  onPress={() => setIsFilterCategoryPickerOpen(true)}
+                  style={({ pressed }) => [
+                    styles.pickerBtn,
+                    pressed && styles.pickerBtnPressed,
+                  ]}
+                >
+                  <Text style={styles.pickerBtnText}>
+                    {filterCategoryId
+                      ? filterCategoryId === "none"
+                        ? "Uncategorized"
+                        : (categoryById.get(String(filterCategoryId))?.name ??
+                          `Category ${filterCategoryId}`)
+                      : "All Category"}
+                  </Text>
+                </Pressable>
+              </View>
             </View>
 
             <View style={{ gap: 6 }}>
-              <Text style={styles.label}>Person</Text>
-              <Pressable
-                onPress={() => setIsFilterPersonPickerOpen(true)}
-                style={({ pressed }) => [
-                  styles.pickerBtn,
-                  pressed && styles.pickerBtnPressed,
-                ]}
-              >
-                <Text style={styles.pickerBtnText}>
-                  {filterPersonId
-                    ? (peopleById.get(String(filterPersonId))?.name ??
-                      `Person ${filterPersonId}`)
-                    : "All"}
-                </Text>
-              </Pressable>
-            </View>
-
-            <View style={{ gap: 6 }}>
-              <Text style={styles.label}>Category</Text>
-              <Pressable
-                onPress={() => setIsFilterCategoryPickerOpen(true)}
-                style={({ pressed }) => [
-                  styles.pickerBtn,
-                  pressed && styles.pickerBtnPressed,
-                ]}
-              >
-                <Text style={styles.pickerBtnText}>
-                  {filterCategoryId
-                    ? filterCategoryId === "none"
-                      ? "Uncategorized"
-                      : (categoryById.get(String(filterCategoryId))?.name ??
-                        `Category ${filterCategoryId}`)
-                    : "All"}
-                </Text>
-              </Pressable>
-            </View>
-
-            <View style={{ gap: 6 }}>
-              <Text style={styles.label}>Txn type</Text>
               <View style={styles.sidebarTxnTypeWrap}>
                 <Pressable
                   onPress={() => {
@@ -1794,305 +1865,221 @@ export default function TransactionsScreen() {
               </View>
             </View>
 
-            <View style={styles.sidebarQuickFilterGroup}>
-              <Text style={styles.sidebarQuickFilterGroupTitle}>
-                Listing & fields
-              </Text>
-              <View style={styles.sidebarQuickFilterRow}>
-                <Text style={styles.sidebarQuickFilterLabel} numberOfLines={1}>
-                  Rows
-                </Text>
-                <View style={styles.sidebarTriPillRow}>
-                  <Pressable
-                    onPress={() => {
-                      setFilterVisibility("visible");
-                      if (IS_WEB) {
-                        const url = new URL(window.location.href);
-                        url.searchParams.delete("show");
-                        url.searchParams.delete("include_hidden");
-                        window.history.replaceState(null, "", url.toString());
-                      }
-                    }}
-                    style={({ pressed }) => [
-                      styles.sidebarTypePillSm,
-                      filterVisibility === "visible" &&
-                        styles.sidebarTypePillActiveNeutral,
-                      pressed &&
-                        filterVisibility !== "visible" &&
-                        styles.typePillPressed,
+            <View style={styles.sidebarQuickFilterRow}>
+              <View style={styles.sidebarTriPillRow}>
+                <Pressable
+                  onPress={() => {
+                    setFilterPersonLinked("all");
+                    if (IS_WEB) {
+                      const url = new URL(window.location.href);
+                      url.searchParams.set("ispersonthere", "all");
+                      window.history.replaceState(null, "", url.toString());
+                    }
+                  }}
+                  style={({ pressed }) => [
+                    styles.sidebarTypePillSm,
+                    filterPersonLinked === "all" &&
+                      styles.sidebarTypePillActiveNeutral,
+                    pressed &&
+                      filterPersonLinked !== "all" &&
+                      styles.typePillPressed,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.sidebarTypePillTextSm,
+                      filterPersonLinked === "all" && styles.typePillTextActive,
                     ]}
+                    numberOfLines={1}
                   >
-                    <Text
-                      style={[
-                        styles.sidebarTypePillTextSm,
-                        filterVisibility === "visible" &&
-                          styles.typePillTextActive,
-                      ]}
-                      numberOfLines={1}
-                    >
-                      Vis
-                    </Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={() => {
-                      setFilterVisibility("hidden");
-                      if (IS_WEB) {
-                        const url = new URL(window.location.href);
-                        url.searchParams.set("show", "hidden");
-                        url.searchParams.delete("include_hidden");
-                        window.history.replaceState(null, "", url.toString());
-                      }
-                    }}
-                    style={({ pressed }) => [
-                      styles.sidebarTypePillSm,
-                      filterVisibility === "hidden" &&
-                        styles.sidebarTypePillActiveNeutral,
-                      pressed &&
-                        filterVisibility !== "hidden" &&
-                        styles.typePillPressed,
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.sidebarTypePillTextSm,
-                        filterVisibility === "hidden" &&
-                          styles.typePillTextActive,
-                      ]}
-                      numberOfLines={1}
-                    >
-                      Hid
-                    </Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={() => {
-                      setFilterVisibility("all");
-                      if (IS_WEB) {
-                        const url = new URL(window.location.href);
-                        url.searchParams.set("show", "all");
-                        url.searchParams.delete("include_hidden");
-                        window.history.replaceState(null, "", url.toString());
-                      }
-                    }}
-                    style={({ pressed }) => [
-                      styles.sidebarTypePillSm,
-                      filterVisibility === "all" &&
-                        styles.sidebarTypePillActiveNeutral,
-                      pressed &&
-                        filterVisibility !== "all" &&
-                        styles.typePillPressed,
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.sidebarTypePillTextSm,
-                        filterVisibility === "all" && styles.typePillTextActive,
-                      ]}
-                      numberOfLines={1}
-                    >
-                      All
-                    </Text>
-                  </Pressable>
-                </View>
-              </View>
-              <View style={styles.sidebarQuickFilterRow}>
-                <Text style={styles.sidebarQuickFilterLabel} numberOfLines={1}>
-                  Person
-                </Text>
-                <View style={styles.sidebarTriPillRow}>
-                  <Pressable
-                    onPress={() => {
-                      setFilterPersonLinked("all");
-                      if (IS_WEB) {
-                        const url = new URL(window.location.href);
-                        url.searchParams.set("ispersonthere", "all");
-                        window.history.replaceState(null, "", url.toString());
-                      }
-                    }}
-                    style={({ pressed }) => [
-                      styles.sidebarTypePillSm,
-                      filterPersonLinked === "all" &&
-                        styles.sidebarTypePillActiveNeutral,
-                      pressed &&
-                        filterPersonLinked !== "all" &&
-                        styles.typePillPressed,
-                    ]}
-                  >
-                    <Text
-                      style={[
-                        styles.sidebarTypePillTextSm,
-                        filterPersonLinked === "all" &&
-                          styles.typePillTextActive,
-                      ]}
-                      numberOfLines={1}
-                    >
-                      All
-                    </Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={() => {
-                      setFilterPersonLinked("linked");
-                      if (IS_WEB) {
-                        const url = new URL(window.location.href);
-                        url.searchParams.set("ispersonthere", "linked");
-                        window.history.replaceState(null, "", url.toString());
-                      }
-                    }}
-                    style={({ pressed }) => [
-                      styles.sidebarTypePillSm,
+                    All Person
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => {
+                    setFilterPersonLinked("linked");
+                    if (IS_WEB) {
+                      const url = new URL(window.location.href);
+                      url.searchParams.set("ispersonthere", "linked");
+                      window.history.replaceState(null, "", url.toString());
+                    }
+                  }}
+                  style={({ pressed }) => [
+                    styles.sidebarTypePillSm,
+                    filterPersonLinked === "linked" &&
+                      styles.sidebarTypePillActiveNeutral,
+                    pressed &&
+                      filterPersonLinked !== "linked" &&
+                      styles.typePillPressed,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.sidebarTypePillTextSm,
                       filterPersonLinked === "linked" &&
-                        styles.sidebarTypePillActiveNeutral,
-                      pressed &&
-                        filterPersonLinked !== "linked" &&
-                        styles.typePillPressed,
+                        styles.typePillTextActive,
                     ]}
+                    numberOfLines={1}
                   >
-                    <Text
-                      style={[
-                        styles.sidebarTypePillTextSm,
-                        filterPersonLinked === "linked" &&
-                          styles.typePillTextActive,
-                      ]}
-                      numberOfLines={1}
-                    >
-                      On
-                    </Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={() => {
-                      setFilterPersonLinked("unlinked");
-                      if (IS_WEB) {
-                        const url = new URL(window.location.href);
-                        url.searchParams.delete("ispersonthere");
-                        window.history.replaceState(null, "", url.toString());
-                      }
-                    }}
-                    style={({ pressed }) => [
-                      styles.sidebarTypePillSm,
+                    Linked Person
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => {
+                    setFilterPersonLinked("unlinked");
+                    if (IS_WEB) {
+                      const url = new URL(window.location.href);
+                      url.searchParams.delete("ispersonthere");
+                      window.history.replaceState(null, "", url.toString());
+                    }
+                  }}
+                  style={({ pressed }) => [
+                    styles.sidebarTypePillSm,
+                    filterPersonLinked === "unlinked" &&
+                      styles.sidebarTypePillActiveNeutral,
+                    pressed &&
+                      filterPersonLinked !== "unlinked" &&
+                      styles.typePillPressed,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.sidebarTypePillTextSm,
                       filterPersonLinked === "unlinked" &&
-                        styles.sidebarTypePillActiveNeutral,
-                      pressed &&
-                        filterPersonLinked !== "unlinked" &&
-                        styles.typePillPressed,
+                        styles.typePillTextActive,
                     ]}
+                    numberOfLines={1}
                   >
-                    <Text
-                      style={[
-                        styles.sidebarTypePillTextSm,
-                        filterPersonLinked === "unlinked" &&
-                          styles.typePillTextActive,
-                      ]}
-                      numberOfLines={1}
-                    >
-                      Off
-                    </Text>
-                  </Pressable>
-                </View>
+                    Unlinked Person
+                  </Text>
+                </Pressable>
               </View>
-              <View style={styles.sidebarQuickFilterRow}>
-                <Text style={styles.sidebarQuickFilterLabel} numberOfLines={1}>
-                  Remark
-                </Text>
-                <View style={styles.sidebarTriPillRow}>
-                  <Pressable
-                    onPress={() => {
-                      setFilterRemarkLinked("all");
-                      if (IS_WEB) {
-                        const url = new URL(window.location.href);
-                        url.searchParams.delete("isremarkthere");
-                        window.history.replaceState(null, "", url.toString());
-                      }
-                    }}
-                    style={({ pressed }) => [
-                      styles.sidebarTypePillSm,
-                      filterRemarkLinked === "all" &&
-                        styles.sidebarTypePillActiveNeutral,
-                      pressed &&
-                        filterRemarkLinked !== "all" &&
-                        styles.typePillPressed,
+              <View style={styles.sidebarTriPillRow}>
+                <Pressable
+                  onPress={() => {
+                    setFilterRemarkLinked("all");
+                    if (IS_WEB) {
+                      const url = new URL(window.location.href);
+                      url.searchParams.delete("isremarkthere");
+                      window.history.replaceState(null, "", url.toString());
+                    }
+                  }}
+                  style={({ pressed }) => [
+                    styles.sidebarTypePillSm,
+                    filterRemarkLinked === "all" &&
+                      styles.sidebarTypePillActiveNeutral,
+                    pressed &&
+                      filterRemarkLinked !== "all" &&
+                      styles.typePillPressed,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.sidebarTypePillTextSm,
+                      filterRemarkLinked === "all" && styles.typePillTextActive,
                     ]}
+                    numberOfLines={1}
                   >
-                    <Text
-                      style={[
-                        styles.sidebarTypePillTextSm,
-                        filterRemarkLinked === "all" &&
-                          styles.typePillTextActive,
-                      ]}
-                      numberOfLines={1}
-                    >
-                      All
-                    </Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={() => {
-                      setFilterRemarkLinked("linked");
-                      if (IS_WEB) {
-                        const url = new URL(window.location.href);
-                        url.searchParams.set("isremarkthere", "linked");
-                        window.history.replaceState(null, "", url.toString());
-                      }
-                    }}
-                    style={({ pressed }) => [
-                      styles.sidebarTypePillSm,
+                    Remarks + Nulled
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => {
+                    setFilterRemarkLinked("linked");
+                    if (IS_WEB) {
+                      const url = new URL(window.location.href);
+                      url.searchParams.set("isremarkthere", "linked");
+                      window.history.replaceState(null, "", url.toString());
+                    }
+                  }}
+                  style={({ pressed }) => [
+                    styles.sidebarTypePillSm,
+                    filterRemarkLinked === "linked" &&
+                      styles.sidebarTypePillActiveNeutral,
+                    pressed &&
+                      filterRemarkLinked !== "linked" &&
+                      styles.typePillPressed,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.sidebarTypePillTextSm,
                       filterRemarkLinked === "linked" &&
-                        styles.sidebarTypePillActiveNeutral,
-                      pressed &&
-                        filterRemarkLinked !== "linked" &&
-                        styles.typePillPressed,
+                        styles.typePillTextActive,
                     ]}
+                    numberOfLines={1}
                   >
-                    <Text
-                      style={[
-                        styles.sidebarTypePillTextSm,
-                        filterRemarkLinked === "linked" &&
-                          styles.typePillTextActive,
-                      ]}
-                      numberOfLines={1}
-                    >
-                      On
-                    </Text>
-                  </Pressable>
-                  <Pressable
-                    onPress={() => {
-                      setFilterRemarkLinked("unlinked");
-                      if (IS_WEB) {
-                        const url = new URL(window.location.href);
-                        url.searchParams.set("isremarkthere", "unlinked");
-                        window.history.replaceState(null, "", url.toString());
-                      }
-                    }}
-                    style={({ pressed }) => [
-                      styles.sidebarTypePillSm,
+                    Remarks
+                  </Text>
+                </Pressable>
+                <Pressable
+                  onPress={() => {
+                    setFilterRemarkLinked("unlinked");
+                    if (IS_WEB) {
+                      const url = new URL(window.location.href);
+                      url.searchParams.set("isremarkthere", "unlinked");
+                      window.history.replaceState(null, "", url.toString());
+                    }
+                  }}
+                  style={({ pressed }) => [
+                    styles.sidebarTypePillSm,
+                    filterRemarkLinked === "unlinked" &&
+                      styles.sidebarTypePillActiveNeutral,
+                    pressed &&
+                      filterRemarkLinked !== "unlinked" &&
+                      styles.typePillPressed,
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.sidebarTypePillTextSm,
                       filterRemarkLinked === "unlinked" &&
-                        styles.sidebarTypePillActiveNeutral,
-                      pressed &&
-                        filterRemarkLinked !== "unlinked" &&
-                        styles.typePillPressed,
+                        styles.typePillTextActive,
                     ]}
+                    numberOfLines={1}
                   >
-                    <Text
-                      style={[
-                        styles.sidebarTypePillTextSm,
-                        filterRemarkLinked === "unlinked" &&
-                          styles.typePillTextActive,
-                      ]}
-                      numberOfLines={1}
-                    >
-                      Off
-                    </Text>
-                  </Pressable>
-                </View>
+                    Nulled Remarks
+                  </Text>
+                </Pressable>
               </View>
             </View>
 
             <View style={{ gap: 6 }}>
-              <Text style={styles.label}>Amount range</Text>
+              <View style={styles.sidebarAmountRow}>
+                <TextInput
+                  value={filterSpecificDateInput}
+                  onChangeText={setFilterSpecificDateInput}
+                  onFocus={() => {
+                    if (!filterSpecificDateInput.trim()) {
+                      setFilterSpecificDateInput(todayISO());
+                    }
+                  }}
+                  placeholder="specific_date (YYYY-MM-DD)"
+                  placeholderTextColor="#9A9A9A"
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  style={styles.sidebarAmountInput}
+                />
+                <Pressable
+                  onPress={() => setFilterSpecificDateInput("")}
+                  style={({ pressed }) => [
+                    styles.pickerBtn,
+                    pressed && styles.pickerBtnPressed,
+                  ]}
+                >
+                  <Text style={styles.pickerBtnText}>Clear</Text>
+                </Pressable>
+              </View>
+            </View>
+
+            <View style={{ gap: 6 }}>
               <View style={styles.sidebarAmountRow}>
                 <TextInput
                   value={filterAmountMinInput}
                   onChangeText={(v) =>
                     setFilterAmountMinInput(normalizeAmountFilterInput(v))
                   }
-                  placeholder="Min"
+                  placeholder="Amount Min"
                   placeholderTextColor="#9A9A9A"
                   keyboardType="decimal-pad"
                   autoCapitalize="none"
@@ -2104,7 +2091,7 @@ export default function TransactionsScreen() {
                   onChangeText={(v) =>
                     setFilterAmountMaxInput(normalizeAmountFilterInput(v))
                   }
-                  placeholder="Max"
+                  placeholder="Amount Max"
                   placeholderTextColor="#9A9A9A"
                   keyboardType="decimal-pad"
                   autoCapitalize="none"
@@ -2129,7 +2116,7 @@ export default function TransactionsScreen() {
         />
         <View style={styles.pickerSheet}>
           <Text style={styles.pickerTitle}>Select account</Text>
-          <ScrollView contentContainerStyle={{ gap: 10 }}>
+          <View style={styles.bulkChipWrap}>
             <Pressable
               onPress={() => {
                 setFilterAccountId(null);
@@ -2141,11 +2128,12 @@ export default function TransactionsScreen() {
                 setIsFilterAccountPickerOpen(false);
               }}
               style={({ pressed }) => [
-                styles.pickerRow,
+                styles.bulkChipBtn,
+                filterAccountId === null && styles.pickerRowActive,
                 pressed && styles.pickerRowPressed,
               ]}
             >
-              <Text style={styles.pickerRowText}>All</Text>
+              <Text style={styles.bulkChipText}>All</Text>
             </Pressable>
             {accounts.map((a) => (
               <Pressable
@@ -2160,14 +2148,15 @@ export default function TransactionsScreen() {
                   setIsFilterAccountPickerOpen(false);
                 }}
                 style={({ pressed }) => [
-                  styles.pickerRow,
+                  styles.bulkChipBtn,
+                  filterAccountId === String(a.id) && styles.pickerRowActive,
                   pressed && styles.pickerRowPressed,
                 ]}
               >
-                <Text style={styles.pickerRowText}>{a.name}</Text>
+                <Text style={styles.bulkChipText}>{a.name}</Text>
               </Pressable>
             ))}
-          </ScrollView>
+          </View>
         </View>
       </Modal>
 
@@ -2500,59 +2489,63 @@ export default function TransactionsScreen() {
                     >
                       <Text style={styles.ledgerMonthHeading}>{mg.label}</Text>
                       {mg.transactions.map((t) => {
-                const accName =
-                  accountById.get(String(t.account))?.name ?? "Account";
-                const hasPerson = t.person != null && t.person !== "";
-                const personName = hasPerson
-                  ? (peopleById.get(String(t.person))?.name ?? "Person")
-                  : undefined;
-                const txnTypePill = txnTypePillStyles(t.txn_type);
+                        const accName =
+                          accountById.get(String(t.account))?.name ?? "Account";
+                        const hasPerson = t.person != null && t.person !== "";
+                        const personName = hasPerson
+                          ? (peopleById.get(String(t.person))?.name ?? "Person")
+                          : undefined;
+                        const txnTypePill = txnTypePillStyles(t.txn_type);
 
-                const amountText = isZeroMoney(t.amount)
-                  ? ""
-                  : formatMoney2(t.amount);
-                const amountStyle =
-                  t.type === "credit" ? styles.creditText : styles.debitText;
+                        const amountText = isZeroMoney(t.amount)
+                          ? ""
+                          : formatMoney2(t.amount);
+                        const amountStyle =
+                          t.type === "credit"
+                            ? styles.creditText
+                            : styles.debitText;
 
-                return (
-                  <View
-                    key={String(t.id)}
-                    style={[
-                      styles.txnTableBlock,
-                      t.hidden && styles.txnRowHidden,
-                    ]}
-                  >
-                    <View style={styles.txnTableRow}>
-                      <View
-                        style={[
-                          styles.cellDescWrap,
-                          hasPerson && styles.cellDescWrapWithPerson,
-                        ]}
-                      >
-                        <View style={styles.cellTopRow}>
-                          <View style={styles.cellRowActions}>
-                            <Pressable
-                              onPress={() => toggleTxnSelection(t.id)}
-                              style={({ pressed }) => [
-                                styles.selectCellBtn,
-                                pressed && styles.selectCellBtnPressed,
-                                selectedTxnIds.includes(String(t.id)) &&
-                                  styles.selectCellBtnActive,
-                              ]}
-                              accessibilityRole="checkbox"
-                              accessibilityState={{
-                                checked: selectedTxnIds.includes(String(t.id)),
-                              }}
-                            >
-                              {selectedTxnIds.includes(String(t.id)) ? (
-                                <Feather
-                                  name="check"
-                                  size={14}
-                                  color="#FFFFFF"
-                                />
-                              ) : null}
-                            </Pressable>
-                            {/* <Pressable
+                        return (
+                          <View
+                            key={String(t.id)}
+                            style={[
+                              styles.txnTableBlock,
+                              t.hidden && styles.txnRowHidden,
+                            ]}
+                          >
+                            <View style={styles.txnTableRow}>
+                              <View
+                                style={[
+                                  styles.cellDescWrap,
+                                  hasPerson && styles.cellDescWrapWithPerson,
+                                ]}
+                              >
+                                <View style={styles.cellTopRow}>
+                                  <View style={styles.cellRowActions}>
+                                    <Pressable
+                                      onPress={() => toggleTxnSelection(t.id)}
+                                      style={({ pressed }) => [
+                                        styles.selectCellBtn,
+                                        pressed && styles.selectCellBtnPressed,
+                                        selectedTxnIds.includes(String(t.id)) &&
+                                          styles.selectCellBtnActive,
+                                      ]}
+                                      accessibilityRole="checkbox"
+                                      accessibilityState={{
+                                        checked: selectedTxnIds.includes(
+                                          String(t.id),
+                                        ),
+                                      }}
+                                    >
+                                      {selectedTxnIds.includes(String(t.id)) ? (
+                                        <Feather
+                                          name="check"
+                                          size={14}
+                                          color="#FFFFFF"
+                                        />
+                                      ) : null}
+                                    </Pressable>
+                                    {/* <Pressable
                               onPress={() => void onToggleTransactionHidden(t)}
                               disabled={hidingTxnId === String(t.id)}
                               hitSlop={8}
@@ -2588,115 +2581,125 @@ export default function TransactionsScreen() {
                                 }
                               />
                             </Pressable> */}
-                            <Pressable
-                              onPress={() =>
-                                void onDelete(t, { confirm: true })
-                              }
-                              disabled={hidingTxnId === String(t.id)}
-                              hitSlop={8}
-                              style={({ pressed }) => [
-                                styles.cellRowActionBtn,
-                                hasPerson && styles.cellRowActionBtnOnDark,
-                                pressed &&
-                                  (hasPerson
-                                    ? styles.cellRowActionBtnDangerPressedDark
-                                    : styles.cellRowActionBtnDangerPressed),
-                                hidingTxnId === String(t.id) && {
-                                  opacity: 0.45,
-                                },
-                              ]}
-                              accessibilityRole="button"
-                              accessibilityLabel="Delete transaction"
-                            >
-                              <Feather
-                                name="trash-2"
-                                size={15}
-                                color={hasPerson ? "#FF8A8A" : "#B42318"}
-                              />
-                            </Pressable>
-                          </View>
-                          <Text
-                            style={[
-                              styles.cellDateTop,
-                              hasPerson && styles.cellDateTopWithPerson,
-                            ]}
-                            numberOfLines={1}
-                          >
-                            {formatDateDDMMYY(t.txn_date)}
-                          </Text>
-                        </View>
-                        <Pressable
-                          onPress={() => openEdit(t)}
-                          style={({ pressed }) => [
-                            styles.cellDescPressableInner,
-                            pressed &&
-                              (hasPerson
-                                ? styles.cellDescPressablePressedPerson
-                                : styles.cellDescPressablePressed),
-                          ]}
-                          accessibilityRole="button"
-                          accessibilityLabel="Edit transaction"
-                        >
-                          {t.remark ? (
-                            <Text
-                              style={[
-                                styles.cellRemarkMinimal,
-                                hasPerson && styles.cellRemarkMinimalWithPerson,
-                              ]}
-                              numberOfLines={2}
-                            >
-                              {t.remark}
-                            </Text>
-                          ) : null}
-                          <Text
-                            style={[
-                              styles.cellDescMinimal,
-                              hasPerson && styles.cellDescMinimalWithPerson,
-                            ]}
-                            numberOfLines={3}
-                          >
-                            {t.description || "—"}
-                          </Text>
-                          <Text
-                            style={[
-                              styles.cellMeta,
-                              hasPerson && styles.cellMetaWithPerson,
-                            ]}
-                            numberOfLines={1}
-                          >
-                            {hasPerson && personName
-                              ? `${personName} · ${accName}`
-                              : accName}
-                            {t.category
-                              ? ` · ${categoryById.get(String(t.category))?.name ?? "Category"}`
-                              : ""}
-                            {t.personal_type ? ` · ${t.personal_type}` : ""}
-                          </Text>
-                          <View style={styles.cellTypeRow}>
-                            <View
-                              style={[styles.cellTypePill, txnTypePill.wrap]}
-                            >
+                                    <Pressable
+                                      onPress={() =>
+                                        void onDelete(t, { confirm: true })
+                                      }
+                                      disabled={hidingTxnId === String(t.id)}
+                                      hitSlop={8}
+                                      style={({ pressed }) => [
+                                        styles.cellRowActionBtn,
+                                        hasPerson &&
+                                          styles.cellRowActionBtnOnDark,
+                                        pressed &&
+                                          (hasPerson
+                                            ? styles.cellRowActionBtnDangerPressedDark
+                                            : styles.cellRowActionBtnDangerPressed),
+                                        hidingTxnId === String(t.id) && {
+                                          opacity: 0.45,
+                                        },
+                                      ]}
+                                      accessibilityRole="button"
+                                      accessibilityLabel="Delete transaction"
+                                    >
+                                      <Feather
+                                        name="trash-2"
+                                        size={15}
+                                        color={
+                                          hasPerson ? "#FF8A8A" : "#B42318"
+                                        }
+                                      />
+                                    </Pressable>
+                                  </View>
+                                  <Text
+                                    style={[
+                                      styles.cellDateTop,
+                                      hasPerson && styles.cellDateTopWithPerson,
+                                    ]}
+                                    numberOfLines={1}
+                                  >
+                                    {formatDateDDMMYY(t.txn_date)}
+                                  </Text>
+                                </View>
+                                <Pressable
+                                  onPress={() => openEdit(t)}
+                                  style={({ pressed }) => [
+                                    styles.cellDescPressableInner,
+                                    pressed &&
+                                      (hasPerson
+                                        ? styles.cellDescPressablePressedPerson
+                                        : styles.cellDescPressablePressed),
+                                  ]}
+                                  accessibilityRole="button"
+                                  accessibilityLabel="Edit transaction"
+                                >
+                                  {t.remark ? (
+                                    <Text
+                                      style={[
+                                        styles.cellRemarkMinimal,
+                                        hasPerson &&
+                                          styles.cellRemarkMinimalWithPerson,
+                                      ]}
+                                      numberOfLines={2}
+                                    >
+                                      {t.remark}
+                                    </Text>
+                                  ) : null}
+                                  <Text
+                                    style={[
+                                      styles.cellDescMinimal,
+                                      hasPerson &&
+                                        styles.cellDescMinimalWithPerson,
+                                    ]}
+                                    numberOfLines={3}
+                                  >
+                                    {t.description || "—"}
+                                  </Text>
+                                  <Text
+                                    style={[
+                                      styles.cellMeta,
+                                      hasPerson && styles.cellMetaWithPerson,
+                                    ]}
+                                    numberOfLines={1}
+                                  >
+                                    {hasPerson && personName
+                                      ? `${personName} · ${accName}`
+                                      : accName}
+                                    {t.category
+                                      ? ` · ${categoryById.get(String(t.category))?.name ?? "Category"}`
+                                      : ""}
+                                    {t.personal_type
+                                      ? ` · ${t.personal_type}`
+                                      : ""}
+                                  </Text>
+                                  <View style={styles.cellTypeRow}>
+                                    <View
+                                      style={[
+                                        styles.cellTypePill,
+                                        txnTypePill.wrap,
+                                      ]}
+                                    >
+                                      <Text
+                                        style={[
+                                          styles.cellTypePillText,
+                                          txnTypePill.text,
+                                        ]}
+                                      >
+                                        {txnTypeLabel(t.txn_type)}
+                                      </Text>
+                                    </View>
+                                  </View>
+                                </Pressable>
+                              </View>
                               <Text
-                                style={[
-                                  styles.cellTypePillText,
-                                  txnTypePill.text,
-                                ]}
+                                style={[styles.cellMoney, amountStyle]}
+                                numberOfLines={1}
                               >
-                                {txnTypeLabel(t.txn_type)}
+                                {amountText}
                               </Text>
                             </View>
                           </View>
-                        </Pressable>
-                      </View>
-                      <Text
-                        style={[styles.cellMoney, amountStyle]}
-                        numberOfLines={1}
-                      >
-                        {amountText}
-                      </Text>
-                    </View>
-                  </View>
-                );
+                        );
                       })}
                     </View>
                   ))}
@@ -2757,6 +2760,7 @@ export default function TransactionsScreen() {
         people={people}
         categories={categories}
         isSaving={isBulkSaving}
+        selectionSnapshot={bulkEditSelectionSnapshot}
         onApply={(patch) => void onApplyBulkUpdate(patch)}
       />
 
@@ -3042,24 +3046,24 @@ const styles = StyleSheet.create({
   headerIconBtnSolidPressed: { opacity: 0.88 },
   kicker: {
     color: "#6B6B6B",
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 11,
     letterSpacing: 1.5,
     textTransform: "uppercase",
   },
   heroTitle: {
     color: "#0B0B0B",
-    fontFamily: "Poppins_800ExtraBold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 22,
     marginTop: 2,
   },
   periodSubtitle: {
     color: "#6B6B6B",
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 12,
     marginTop: 4,
   },
-  title: { color: "#0B0B0B", fontFamily: "Poppins_800ExtraBold", fontSize: 24 },
+  title: { color: "#0B0B0B", fontFamily: "Poppins_400Regular", fontSize: 24 },
   muted: { color: "#6B6B6B", fontFamily: "Poppins_400Regular" },
   filterCard: {
     marginBottom: 12,
@@ -3098,7 +3102,7 @@ const styles = StyleSheet.create({
   },
   periodTotalAmountHeader: {
     fontSize: 12,
-    fontFamily: "Poppins_700Bold",
+    fontFamily: "Poppins_400Regular",
     flexShrink: 1,
   },
   filterCardTitleRow: {
@@ -3155,7 +3159,7 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     color: "#0B0B0B",
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 12,
   },
   customDateModalRoot: {
@@ -3186,7 +3190,7 @@ const styles = StyleSheet.create({
   },
   customDateModalLabel: {
     fontSize: 11,
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
     color: "#6B6B6B",
   },
   customDateInputFull: {
@@ -3199,7 +3203,7 @@ const styles = StyleSheet.create({
     minHeight: 44,
     backgroundColor: "#FFFFFF",
     color: "#0B0B0B",
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 14,
   },
   customDateModalCloseBtn: {
@@ -3213,7 +3217,7 @@ const styles = StyleSheet.create({
   customDateModalCloseBtnPressed: { backgroundColor: "#F5F5F5" },
   customDateModalCloseText: {
     color: "#0B0B0B",
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 12,
   },
   customDateApplyBtn: {
@@ -3227,12 +3231,12 @@ const styles = StyleSheet.create({
   customDateApplyBtnPressed: { opacity: 0.88 },
   customDateApplyBtnText: {
     color: "#FFFFFF",
-    fontFamily: "Poppins_700Bold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 13,
   },
   viewAllBtnText: {
     color: "#0B0B0B",
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 12,
   },
   filterRowInner: {
@@ -3274,7 +3278,7 @@ const styles = StyleSheet.create({
   },
   filterFieldLbl: {
     color: "#0B0B0B",
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 11,
   },
   filterBtn: {
@@ -3297,7 +3301,7 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     color: "#0B0B0B",
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 12,
   },
   toolbarRow: {
@@ -3407,7 +3411,7 @@ const styles = StyleSheet.create({
   },
   bulkBarText: {
     color: "#0B0B0B",
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 12,
   },
   bulkDangerBtn: {
@@ -3421,7 +3425,7 @@ const styles = StyleSheet.create({
   bulkDangerBtnPressed: { backgroundColor: "#FEEAEA" },
   bulkDangerBtnText: {
     color: "#B42318",
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 12,
   },
   txnPagerInline: {
@@ -3442,7 +3446,7 @@ const styles = StyleSheet.create({
     minWidth: 28,
     textAlign: "center",
     color: "#0B0B0B",
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 13,
   },
   center: { flex: 1, justifyContent: "center", alignItems: "center", gap: 10 },
@@ -3454,7 +3458,7 @@ const styles = StyleSheet.create({
   },
   ledgerYearHeading: {
     color: "#0B0B0B",
-    fontFamily: "Poppins_800ExtraBold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 22,
     marginTop: 4,
     marginBottom: 4,
@@ -3464,7 +3468,7 @@ const styles = StyleSheet.create({
   },
   ledgerMonthHeading: {
     color: "#6B6B6B",
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 12,
     paddingVertical: 6,
     paddingHorizontal: 2,
@@ -3474,7 +3478,7 @@ const styles = StyleSheet.create({
   },
   tableTitle: {
     color: "#0B0B0B",
-    fontFamily: "Poppins_700Bold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 15,
     marginBottom: 8,
   },
@@ -3488,7 +3492,7 @@ const styles = StyleSheet.create({
     marginBottom: 0,
   },
   thSelectCol: { width: 42, textAlign: "center" },
-  th: { color: "#6B6B6B", fontFamily: "Poppins_600SemiBold", fontSize: 11 },
+  th: { color: "#6B6B6B", fontFamily: "Poppins_400Regular", fontSize: 11 },
   thDateCol: { width: 86 },
   thDateColWide: { width: 132 },
   thDesc: { flex: 1, minWidth: 0 },
@@ -3531,13 +3535,13 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     color: "#5C5C5C",
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 12,
     lineHeight: 16,
   },
   cellDateTopWithPerson: {
     color: "rgba(255,255,255,0.78)",
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
   },
   cellRowActions: {
     flexDirection: "row",
@@ -3586,7 +3590,7 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     color: "#0B0B0B",
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 10,
   },
   cellDescWrap: {
@@ -3619,7 +3623,7 @@ const styles = StyleSheet.create({
     fontSize: 11,
     lineHeight: 16,
     color: "#4A4A4A",
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
   },
   cellRemarkMinimalWithPerson: {
     borderColor: "rgba(255,255,255,0.22)",
@@ -3664,7 +3668,7 @@ const styles = StyleSheet.create({
   },
   cellTypePillText: {
     color: "#0B0B0B",
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 10,
   },
   cellTypePillIncome: {
@@ -3686,7 +3690,7 @@ const styles = StyleSheet.create({
     width: 62,
     flexShrink: 0,
     textAlign: "right",
-    fontFamily: "Poppins_700Bold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 12,
     paddingTop: 1,
   },
@@ -3697,7 +3701,11 @@ const styles = StyleSheet.create({
     padding: 16,
     gap: 6,
   },
-  emptyTitle: { fontSize: 14, fontFamily: "Poppins_700Bold", color: "#0B0B0B" },
+  emptyTitle: {
+    fontSize: 14,
+    fontFamily: "Poppins_400Regular",
+    color: "#0B0B0B",
+  },
   card: {
     borderWidth: 1,
     borderColor: "#E7E7E7",
@@ -3706,7 +3714,11 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
     gap: 12,
   },
-  cardTitle: { color: "#0B0B0B", fontSize: 14, fontFamily: "Poppins_700Bold" },
+  cardTitle: {
+    color: "#0B0B0B",
+    fontSize: 14,
+    fontFamily: "Poppins_400Regular",
+  },
   cardSubtitle: {
     color: "#6B6B6B",
     fontSize: 12,
@@ -3715,7 +3727,7 @@ const styles = StyleSheet.create({
   cardAmount: {
     color: "#0B0B0B",
     fontSize: 12,
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
   },
   cardActions: { flexDirection: "row", gap: 10 },
   tableHeaderRow: {
@@ -3736,15 +3748,15 @@ const styles = StyleSheet.create({
   thText: {
     color: "#6B6B6B",
     fontSize: 11,
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
   },
   tdText: {
     color: "#0B0B0B",
     fontSize: 12,
     fontFamily: "Poppins_400Regular",
   },
-  creditText: { color: "#2E7D5A", fontFamily: "Poppins_700Bold" },
-  debitText: { color: "#B83C3C", fontFamily: "Poppins_700Bold" },
+  creditText: { color: "#2E7D5A", fontFamily: "Poppins_400Regular" },
+  debitText: { color: "#B83C3C", fontFamily: "Poppins_400Regular" },
   colDate: { flex: 1 },
   colDesc: { flex: 2 },
   colAccount: { flex: 2 },
@@ -3784,7 +3796,7 @@ const styles = StyleSheet.create({
   smallBtnPressed: { backgroundColor: "#F5F5F5" },
   smallBtnText: {
     color: "#0B0B0B",
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 12,
   },
   smallBtnDanger: {
@@ -3798,7 +3810,7 @@ const styles = StyleSheet.create({
   smallBtnDangerPressed: { opacity: 0.88 },
   smallBtnDangerText: {
     color: "#FFFFFF",
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 12,
   },
 
@@ -3818,7 +3830,7 @@ const styles = StyleSheet.create({
   },
   deleteBtnText: {
     color: "#FFFFFF",
-    fontFamily: "Poppins_700Bold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 13,
   },
 
@@ -3854,7 +3866,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 12,
   },
-  sheetTitle: { color: "#0B0B0B", fontSize: 16, fontFamily: "Poppins_700Bold" },
+  sheetTitle: {
+    color: "#0B0B0B",
+    fontSize: 16,
+    fontFamily: "Poppins_400Regular",
+  },
   closeBtn: {
     borderWidth: 1,
     borderColor: "#0B0B0B",
@@ -3865,10 +3881,10 @@ const styles = StyleSheet.create({
   closeBtnPressed: { backgroundColor: "#F5F5F5" },
   closeBtnText: {
     color: "#0B0B0B",
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 12,
   },
-  label: { color: "#0B0B0B", fontFamily: "Poppins_600SemiBold", fontSize: 12 },
+  label: { color: "#0B0B0B", fontFamily: "Poppins_400Regular", fontSize: 12 },
   inputMultiline: {
     minHeight: 88,
     paddingTop: 10,
@@ -3893,7 +3909,7 @@ const styles = StyleSheet.create({
   pickerBtnPressed: { backgroundColor: "#F5F5F5" },
   pickerBtnText: {
     color: "#0B0B0B",
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 13,
   },
   moneyRow: { flexDirection: "row", gap: 10 },
@@ -3908,7 +3924,7 @@ const styles = StyleSheet.create({
   typePillPressed: { backgroundColor: "#F5F5F5" },
   typePillText: {
     color: "#0B0B0B",
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 12,
   },
   typePillTextActive: { color: "#FFFFFF" },
@@ -3924,7 +3940,7 @@ const styles = StyleSheet.create({
   saveBtnText: {
     color: "#FFFFFF",
     fontSize: 13,
-    fontFamily: "Poppins_700Bold",
+    fontFamily: "Poppins_400Regular",
   },
 
   pickerSheet: {
@@ -3945,7 +3961,7 @@ const styles = StyleSheet.create({
   },
   pickerTitle: {
     color: "#0B0B0B",
-    fontFamily: "Poppins_700Bold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 14,
   },
   pickerAddBtn: {
@@ -3962,7 +3978,7 @@ const styles = StyleSheet.create({
   pickerAddBtnPressed: { backgroundColor: "#F5F5F5" },
   pickerAddBtnText: {
     color: "#0B0B0B",
-    fontFamily: "Poppins_700Bold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 12,
   },
   pickerSearchInput: {
@@ -4006,12 +4022,12 @@ const styles = StyleSheet.create({
   },
   bulkChipText: {
     color: "#0B0B0B",
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 12,
   },
   pickerRowText: {
     color: "#0B0B0B",
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 13,
   },
   sidebarHeader: {
@@ -4022,7 +4038,7 @@ const styles = StyleSheet.create({
   },
   sidebarTitle: {
     color: "#0B0B0B",
-    fontFamily: "Poppins_700Bold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 15,
   },
   closeMiniBtn: {
@@ -4058,7 +4074,7 @@ const styles = StyleSheet.create({
     borderColor: "#EDEDED",
   },
   sidebarQuickFilterGroupTitle: {
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 11,
     color: "#6B6B6B",
     letterSpacing: 0.4,
@@ -4070,7 +4086,7 @@ const styles = StyleSheet.create({
   },
   sidebarQuickFilterLabel: {
     width: 56,
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 12,
     color: "#0B0B0B",
   },
@@ -4094,7 +4110,7 @@ const styles = StyleSheet.create({
   },
   sidebarTypePillTextSm: {
     color: "#0B0B0B",
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 11,
   },
   sidebarTypePill: {
@@ -4113,7 +4129,7 @@ const styles = StyleSheet.create({
   },
   sidebarTypePillText: {
     color: "#0B0B0B",
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 12,
   },
   sidebarTxnTypeWrap: {
@@ -4131,7 +4147,7 @@ const styles = StyleSheet.create({
   },
   sidebarTxnTypePillText: {
     color: "#0B0B0B",
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 12,
   },
   sidebarAmountRow: {
@@ -4188,7 +4204,7 @@ const styles = StyleSheet.create({
   menuRowPressed: { backgroundColor: "#F5F5F5" },
   menuRowText: {
     color: "#0B0B0B",
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 13,
   },
 });

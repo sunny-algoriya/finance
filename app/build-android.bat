@@ -17,6 +17,9 @@ if not exist "android\gradlew.bat" (
 echo.
 echo Building Android %MODE% APK...
 echo.
+echo API: Release builds always bundle https://shreyclinic.com/api ^(see app\config.ts — production URL when __DEV__ is off^).
+echo      You do not need to edit or uncomment config.ts before release.
+echo.
 echo If packageRelease fails: close Android Studio, then run  android\gradlew.bat clean  and rebuild.
 echo Or from repo root:  set GRADLE_CLEAN=1  then run this script ^(runs clean first^).
 echo.

@@ -5,13 +5,7 @@ import {
 } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import type { NativeStackScreenProps } from "@react-navigation/native-stack";
-import {
-  Modal,
-  Pressable,
-  StyleSheet,
-  Text,
-  View,
-} from "react-native";
+import { Modal, Pressable, StyleSheet, Text, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Feather } from "@expo/vector-icons";
 
@@ -23,7 +17,6 @@ import AccountsScreen from "../screens/AccountsScreen";
 import AccountLedgerScreen from "../screens/AccountLedgerScreen";
 import PeoplesScreen from "../screens/PeoplesScreen";
 import PersonLedgerScreen from "../screens/PersonLedgerScreen";
-import PersonLoanReportScreen from "../screens/PersonLoanReportScreen";
 import CategoriesScreen from "../screens/CategoriesScreen";
 import TransactionsScreen from "../screens/TransactionsScreen";
 import TransactionBrowseScreen from "../screens/TransactionBrowseScreen";
@@ -103,7 +96,9 @@ function DummyScreen({ title }: { title: string }) {
   );
 }
 
-function AppShell({ navigation }: NativeStackScreenProps<RootStackParamList, "App">) {
+function AppShell({
+  navigation,
+}: NativeStackScreenProps<RootStackParamList, "App">) {
   const [isMenuOpen, setIsMenuOpen] = React.useState(false);
   const { setAccessToken } = useAuth();
   const insets = useSafeAreaInsets();
@@ -140,12 +135,14 @@ function AppShell({ navigation }: NativeStackScreenProps<RootStackParamList, "Ap
         screenOptions={{ headerShown: false }}
       >
         <AppStack.Screen name="Transactions" component={TransactionsScreen} />
-        <AppStack.Screen name="TransactionBrowse" component={TransactionBrowseScreen} />
+        <AppStack.Screen
+          name="TransactionBrowse"
+          component={TransactionBrowseScreen}
+        />
         <AppStack.Screen name="Accounts" component={AccountsScreen} />
         <AppStack.Screen name="AccountLedger" component={AccountLedgerScreen} />
         <AppStack.Screen name="Peoples" component={PeoplesScreen} />
         <AppStack.Screen name="PersonLedger" component={PersonLedgerScreen} />
-        <AppStack.Screen name="PersonLoanReport" component={PersonLoanReportScreen} />
         <AppStack.Screen name="Categories" component={CategoriesScreen} />
         <AppStack.Screen name="SplitGroups" component={SplitGroupsScreen} />
         <AppStack.Screen name="SelfTransfers" component={SelfTransferScreen} />
@@ -183,9 +180,7 @@ function AppShell({ navigation }: NativeStackScreenProps<RootStackParamList, "Ap
           style={menuStyles.backdrop}
           onPress={() => setIsMenuOpen(false)}
         />
-        <View
-          style={[menuStyles.sheet, { paddingBottom: 16 + insets.bottom }]}
-        >
+        <View style={[menuStyles.sheet, { paddingBottom: 16 + insets.bottom }]}>
           <View style={menuStyles.header}>
             <Text style={menuStyles.title}>Navigation</Text>
             <Pressable
@@ -270,7 +265,7 @@ export default function AppNavigator() {
 
   const authContext = React.useMemo(
     () => ({ accessToken, setAccessToken }),
-    [accessToken]
+    [accessToken],
   );
 
   if (isHydrating) return null;
@@ -341,7 +336,11 @@ const menuStyles = StyleSheet.create({
     paddingVertical: 8,
   },
   closeBtnPressed: { backgroundColor: "#F5F5F5" },
-  closeText: { color: "#0B0B0B", fontFamily: "Poppins_600SemiBold", fontSize: 12 },
+  closeText: {
+    color: "#0B0B0B",
+    fontFamily: "Poppins_600SemiBold",
+    fontSize: 12,
+  },
   list: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -362,7 +361,11 @@ const menuStyles = StyleSheet.create({
   },
   rowLeft: { flexDirection: "row", alignItems: "center", gap: 8 },
   rowPressed: { backgroundColor: "#F5F5F5" },
-  rowText: { color: "#0B0B0B", fontSize: 13, fontFamily: "Poppins_600SemiBold" },
+  rowText: {
+    color: "#0B0B0B",
+    fontSize: 13,
+    fontFamily: "Poppins_600SemiBold",
+  },
   footer: { marginTop: 6 },
   logoutBtn: {
     borderRadius: 14,
@@ -377,6 +380,9 @@ const menuStyles = StyleSheet.create({
 
 const dummyStyles = StyleSheet.create({
   title: { fontSize: 18, fontFamily: "Poppins_700Bold", color: "#0B0B0B" },
-  subtitle: { fontSize: 13, fontFamily: "Poppins_400Regular", color: "#6B6B6B" },
+  subtitle: {
+    fontSize: 13,
+    fontFamily: "Poppins_400Regular",
+    color: "#6B6B6B",
+  },
 });
-

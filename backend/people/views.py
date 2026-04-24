@@ -123,6 +123,60 @@ class PersonViewSet(BaseModelViewSet):
     def get_queryset(self):
         return Person.objects.filter(user=self.request.user).order_by(Lower("name"), "name")
 
+    def _build_people_list_summary(self, people_qs):
+        person_ids = list(people_qs.values_list("id", flat=True))
+        if not person_ids:
+            zero = _money_str(Decimal("0"))
+            return {
+                "people_count": 0,
+                "gave": zero,
+                "got": zero,
+                "settled": zero,
+                "balance": zero,
+            }
+
+        txns = Transaction.objects.filter(
+            user=self.request.user,
+            person_id__in=person_ids,
+            personal_type__isnull=False,
+        )
+        gave = (
+            txns.filter(personal_type=Transaction.PersonalType.GAVE).aggregate(s=Sum("debit"))["s"]
+            or Decimal("0")
+        )
+        got = (
+            txns.filter(personal_type=Transaction.PersonalType.GOT).aggregate(s=Sum("credit"))["s"]
+            or Decimal("0")
+        )
+        settled = (
+            txns.filter(personal_type=Transaction.PersonalType.SETTLE).aggregate(
+                s=Sum(F("credit") + F("debit"))
+            )["s"]
+            or Decimal("0")
+        )
+        balance = got - gave - settled
+        return {
+            "people_count": len(person_ids),
+            "gave": _money_str(gave),
+            "got": _money_str(got),
+            "settled": _money_str(settled),
+            "balance": _money_str(balance),
+        }
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+        summary = self._build_people_list_summary(queryset)
+
+        page = self.paginate_queryset(queryset)
+        if page is not None:
+            serializer = self.get_serializer(page, many=True)
+            response = self.get_paginated_response(serializer.data)
+            response.data["summary"] = summary
+            return response
+
+        serializer = self.get_serializer(queryset, many=True)
+        return Response({"results": serializer.data, "summary": summary})
+
     def _build_ledger_payload(self, request, person):
         qp = request.query_params
         year_int, month_int = parse_year_month_query_params(qp)

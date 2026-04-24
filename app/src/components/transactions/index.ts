@@ -3,7 +3,11 @@ export {
   type TransactionFormCreateDefaults,
   type TransactionFormModalProps,
 } from "./TransactionFormModal";
-export { TransactionBulkEditModal, type BulkUpdatePatch } from "./TransactionBulkEditModal";
+export {
+  TransactionBulkEditModal,
+  type BulkEditRowSnapshot,
+  type BulkUpdatePatch,
+} from "./TransactionBulkEditModal";
 export { TransactionBulkSelectionBar } from "./TransactionBulkSelectionBar";
 export {
   formatMoneyInput,

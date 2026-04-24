@@ -141,6 +141,7 @@ export type TransactionListParams = {
   month?: string | number;
   start_date?: string;
   end_date?: string;
+  specific_date?: string;
   amount_min?: string | number;
   amount_max?: string | number;
   account?: string | number | null;
@@ -211,6 +212,7 @@ function buildTransactionFilterQuery(
     month,
     start_date,
     end_date,
+    specific_date,
     amount_min,
     amount_max,
     amount,
@@ -235,6 +237,7 @@ function buildTransactionFilterQuery(
     month: month ?? undefined,
     start_date: start_date ?? undefined,
     end_date: end_date ?? undefined,
+    specific_date: specific_date ?? undefined,
     amount_min: amount_min ?? undefined,
     amount_max: amount_max ?? undefined,
     account: account ?? undefined,

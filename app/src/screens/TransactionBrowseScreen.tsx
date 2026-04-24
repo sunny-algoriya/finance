@@ -793,7 +793,7 @@ export default function TransactionBrowseScreen() {
 const styles = StyleSheet.create({
   topBar: { paddingHorizontal: 16, paddingBottom: 8, gap: 4 },
   title: {
-    fontFamily: "Poppins_700Bold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 18,
     color: "#0B0B0B",
   },
@@ -805,7 +805,7 @@ const styles = StyleSheet.create({
   scroll: { flex: 1 },
   scrollContent: { padding: 16, paddingBottom: 32, gap: 10 },
   sectionLabel: {
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 12,
     color: "#6B6B6B",
     marginTop: 4,
@@ -818,7 +818,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   periodField: {
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 14,
     color: "#0B0B0B",
   },
@@ -832,7 +832,7 @@ const styles = StyleSheet.create({
   },
   miniBtnText: {
     fontSize: 11,
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
     color: "#0B0B0B",
   },
   filterBlockCard: {
@@ -873,7 +873,7 @@ const styles = StyleSheet.create({
   segmentOnTransfer: { backgroundColor: "#3D5A80" },
   segmentPressed: { opacity: 0.88 },
   segmentCellText: {
-    fontFamily: "Poppins_700Bold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 13,
     color: "#3A3A3A",
   },
@@ -898,7 +898,7 @@ const styles = StyleSheet.create({
   },
   personalTilePressed: { opacity: 0.9 },
   personalTileText: {
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 13,
     color: "#2A2A2A",
   },
@@ -915,7 +915,7 @@ const styles = StyleSheet.create({
   chipOn: { borderColor: "#0B0B0B", backgroundColor: "#0B0B0B" },
   chipPressed: { opacity: 0.85 },
   chipText: {
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 12,
     color: "#0B0B0B",
   },
@@ -944,7 +944,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   summaryCardTitle: {
-    fontFamily: "Poppins_700Bold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 14,
     color: "#0B0B0B",
   },
@@ -974,20 +974,20 @@ const styles = StyleSheet.create({
     backgroundColor: "#0B0B0B",
   },
   summaryCellLbl: {
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 11,
     color: "#6B6B6B",
   },
   summaryCellLblOnDark: { color: "#D0D0D0" },
   summaryCellVal: {
-    fontFamily: "Poppins_700Bold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 15,
     color: "#0B0B0B",
   },
   summaryIncome: { color: "#2E7D5A" },
   summaryExpense: { color: "#B83C3C" },
   summaryCellValAll: {
-    fontFamily: "Poppins_800ExtraBold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 16,
     color: "#FFFFFF",
   },
@@ -995,17 +995,17 @@ const styles = StyleSheet.create({
   fieldBtnLbl: {
     fontSize: 11,
     color: "#6B6B6B",
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
   },
   fieldBtnVal: {
     fontSize: 14,
     color: "#0B0B0B",
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
   },
   refreshLink: { alignSelf: "center", paddingVertical: 8 },
   refreshLinkText: {
     color: "#2F4F8C",
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 13,
   },
   center: { paddingVertical: 24, alignItems: "center" },
@@ -1017,12 +1017,12 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   loadingOverlayText: {
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 12,
     color: "#0B0B0B",
   },
   countLine: {
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 12,
     color: "#6B6B6B",
   },
@@ -1041,15 +1041,15 @@ const styles = StyleSheet.create({
   cardDate: {
     fontSize: 12,
     color: "#6B6B6B",
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
   },
-  cardAmt: { fontSize: 14, fontFamily: "Poppins_700Bold" },
+  cardAmt: { fontSize: 14, fontFamily: "Poppins_400Regular" },
   cardAmtCredit: { color: "#2E7D5A" },
   cardAmtDebit: { color: "#B83C3C" },
   cardDesc: {
     fontSize: 14,
     color: "#0B0B0B",
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
   },
   cardMetaRow: {
     flexDirection: "row",
@@ -1088,7 +1088,7 @@ const styles = StyleSheet.create({
   txnTypeBadgeText: {
     fontSize: 10,
     color: "#0B0B0B",
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
   },
   personalTypeBadge: {
     paddingHorizontal: 8,
@@ -1113,14 +1113,14 @@ const styles = StyleSheet.create({
   personalTypeBadgeText: {
     fontSize: 10,
     color: "#0B0B0B",
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
   },
   ledgerYearGroup: {
     marginBottom: 8,
   },
   ledgerYearHeading: {
     color: "#0B0B0B",
-    fontFamily: "Poppins_800ExtraBold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 22,
     marginTop: 4,
     marginBottom: 4,
@@ -1130,7 +1130,7 @@ const styles = StyleSheet.create({
   },
   ledgerMonthHeading: {
     color: "#6B6B6B",
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 12,
     paddingVertical: 6,
     paddingHorizontal: 2,
@@ -1159,7 +1159,7 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   sheetTitle: {
-    fontFamily: "Poppins_700Bold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 16,
     color: "#0B0B0B",
   },
@@ -1169,7 +1169,7 @@ const styles = StyleSheet.create({
   },
   sheetDoneBtnPressed: { opacity: 0.75 },
   sheetDoneText: {
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 14,
     color: "#2F4F8C",
   },
@@ -1192,7 +1192,7 @@ const styles = StyleSheet.create({
   },
   sheetRowPressed: { backgroundColor: "#F8F8F8" },
   sheetRowText: {
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 14,
     color: "#0B0B0B",
   },

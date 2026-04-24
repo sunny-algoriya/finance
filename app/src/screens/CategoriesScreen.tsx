@@ -270,12 +270,12 @@ const styles = StyleSheet.create({
   },
   kicker: {
     color: "#6B6B6B",
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 11,
     letterSpacing: 1.5,
     textTransform: "uppercase",
   },
-  title: { color: "#0B0B0B", fontFamily: "Poppins_800ExtraBold", fontSize: 24 },
+  title: { color: "#0B0B0B", fontFamily: "Poppins_400Regular", fontSize: 24 },
   muted: { color: "#6B6B6B", fontFamily: "Poppins_400Regular" },
   addBtn: {
     backgroundColor: "#0B0B0B",
@@ -284,7 +284,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   addBtnPressed: { opacity: 0.88 },
-  addBtnText: { color: "#FFFFFF", fontFamily: "Poppins_700Bold", fontSize: 13 },
+  addBtnText: { color: "#FFFFFF", fontFamily: "Poppins_400Regular", fontSize: 13 },
   refreshRow: {
     alignSelf: "flex-start",
     borderWidth: 1,
@@ -295,7 +295,7 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   refreshRowPressed: { backgroundColor: "#F5F5F5" },
-  refreshText: { color: "#0B0B0B", fontFamily: "Poppins_600SemiBold", fontSize: 12 },
+  refreshText: { color: "#0B0B0B", fontFamily: "Poppins_400Regular", fontSize: 12 },
   center: { flex: 1, justifyContent: "center", alignItems: "center", gap: 10 },
   list: { gap: 10, paddingBottom: 12 },
   empty: {
@@ -305,7 +305,7 @@ const styles = StyleSheet.create({
     padding: 16,
     gap: 6,
   },
-  emptyTitle: { fontSize: 14, fontFamily: "Poppins_700Bold", color: "#0B0B0B" },
+  emptyTitle: { fontSize: 14, fontFamily: "Poppins_400Regular", color: "#0B0B0B" },
   card: {
     borderWidth: 1,
     borderColor: "#E7E7E7",
@@ -314,7 +314,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#FFFFFF",
     gap: 12,
   },
-  cardTitle: { color: "#0B0B0B", fontSize: 14, fontFamily: "Poppins_700Bold" },
+  cardTitle: { color: "#0B0B0B", fontSize: 14, fontFamily: "Poppins_400Regular" },
   cardActions: { flexDirection: "row", gap: 10 },
   smallBtn: {
     borderWidth: 1,
@@ -324,7 +324,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   smallBtnPressed: { backgroundColor: "#F5F5F5" },
-  smallBtnText: { color: "#0B0B0B", fontFamily: "Poppins_600SemiBold", fontSize: 12 },
+  smallBtnText: { color: "#0B0B0B", fontFamily: "Poppins_400Regular", fontSize: 12 },
   smallBtnDanger: {
     borderWidth: 1,
     borderColor: "#0B0B0B",
@@ -334,7 +334,7 @@ const styles = StyleSheet.create({
     backgroundColor: "#0B0B0B",
   },
   smallBtnDangerPressed: { opacity: 0.88 },
-  smallBtnDangerText: { color: "#FFFFFF", fontFamily: "Poppins_600SemiBold", fontSize: 12 },
+  smallBtnDangerText: { color: "#FFFFFF", fontFamily: "Poppins_400Regular", fontSize: 12 },
 
   backdrop: { flex: 1, backgroundColor: "rgba(0,0,0,0.35)" },
   sheet: {
@@ -351,7 +351,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
     marginBottom: 12,
   },
-  sheetTitle: { color: "#0B0B0B", fontSize: 16, fontFamily: "Poppins_700Bold" },
+  sheetTitle: { color: "#0B0B0B", fontSize: 16, fontFamily: "Poppins_400Regular" },
   closeBtn: {
     borderWidth: 1,
     borderColor: "#0B0B0B",
@@ -360,8 +360,8 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   closeBtnPressed: { backgroundColor: "#F5F5F5" },
-  closeBtnText: { color: "#0B0B0B", fontFamily: "Poppins_600SemiBold", fontSize: 12 },
-  label: { color: "#0B0B0B", fontFamily: "Poppins_600SemiBold", fontSize: 12 },
+  closeBtnText: { color: "#0B0B0B", fontFamily: "Poppins_400Regular", fontSize: 12 },
+  label: { color: "#0B0B0B", fontFamily: "Poppins_400Regular", fontSize: 12 },
   input: {
     borderWidth: 1,
     borderColor: "#E7E7E7",
@@ -381,6 +381,6 @@ const styles = StyleSheet.create({
     backgroundColor: "#0B0B0B",
   },
   saveBtnPressed: { opacity: 0.88 },
-  saveBtnText: { color: "#FFFFFF", fontSize: 13, fontFamily: "Poppins_700Bold" },
+  saveBtnText: { color: "#FFFFFF", fontSize: 13, fontFamily: "Poppins_400Regular" },
 });
 

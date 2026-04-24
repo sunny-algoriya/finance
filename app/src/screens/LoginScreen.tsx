@@ -156,12 +156,12 @@ const styles = StyleSheet.create({
   header: { gap: 6, marginBottom: 14 },
   kicker: {
     color: COLORS.muted,
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 11,
     letterSpacing: 1.5,
     textTransform: "uppercase",
   },
-  title: { color: COLORS.fg, fontFamily: "Poppins_800ExtraBold", fontSize: 24 },
+  title: { color: COLORS.fg, fontFamily: "Poppins_400Regular", fontSize: 24 },
   subtitle: {
     color: COLORS.muted,
     fontFamily: "Poppins_400Regular",
@@ -172,7 +172,7 @@ const styles = StyleSheet.create({
   field: { gap: 6 },
   label: {
     color: COLORS.fg,
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 12,
   },
   input: {
@@ -196,7 +196,7 @@ const styles = StyleSheet.create({
   primaryButtonPressed: { opacity: 0.88 },
   primaryButtonText: {
     color: COLORS.bg,
-    fontFamily: "Poppins_700Bold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 14,
   },
   buttonRow: { flexDirection: "row", alignItems: "center", gap: 10 },
@@ -221,7 +221,7 @@ const styles = StyleSheet.create({
   secondaryButtonDisabled: { opacity: 0.6 },
   secondaryButtonText: {
     color: COLORS.fg,
-    fontFamily: "Poppins_700Bold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 14,
   },
   footer: {

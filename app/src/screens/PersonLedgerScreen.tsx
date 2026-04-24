@@ -23,6 +23,7 @@ import {
   TransactionBulkEditModal,
   TransactionBulkSelectionBar,
   TransactionFormModal,
+  type BulkEditRowSnapshot,
   type BulkUpdatePatch,
   type TransactionEditState,
   IS_WEB,
@@ -348,6 +349,18 @@ export default function PersonLedgerScreen() {
     () => (ledger?.transactions ?? []).map((r) => String(r.id)),
     [ledger?.transactions],
   );
+
+  const bulkEditSelectionSnapshot = React.useMemo((): BulkEditRowSnapshot[] => {
+    if (!ledger) return [];
+    const idSet = new Set(selectedTxnIds);
+    return ledger.transactions
+      .filter((r) => idSet.has(String(r.id)))
+      .map((r) => ({
+        person: personId,
+        category: r.category,
+      }));
+  }, [ledger, selectedTxnIds, personId]);
+
   const areAllSelected =
     rowIds.length > 0 && rowIds.every((id) => selectedTxnIds.includes(id));
 
@@ -611,9 +624,7 @@ export default function PersonLedgerScreen() {
       <Text style={styles.personName}>{displayName}</Text>
 
       <View style={styles.filterCard}>
-        <Text style={styles.filterLabel}>
-          Optional filters (leave empty for all time)
-        </Text>
+        <Text style={styles.filterLabel}>Filters</Text>
         <View style={styles.filterSingleRow}>
           <View style={styles.filterCol}>
             <Text style={styles.filterFieldLbl}>Year</Text>
@@ -660,7 +671,7 @@ export default function PersonLedgerScreen() {
         </View>
         {!isLoading && ledger && ledger.categories.length > 0 ? (
           <View style={styles.categoryFilterBlock}>
-            <Text style={styles.categoryFilterLabel}>Filter by category</Text>
+            <Text style={styles.categoryFilterLabel}>Category</Text>
             <ScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
@@ -735,7 +746,7 @@ export default function PersonLedgerScreen() {
         <ScrollView contentContainerStyle={styles.scrollContent}>
           <View style={styles.creditDebitNetBox}>
             <View style={styles.creditDebitNetHeader}>
-              <Text style={styles.creditDebitNetTitle}>Credit & debit</Text>
+              <Text style={styles.creditDebitNetTitle}>Summary</Text>
               {entryTypeFilter !== "all" ? (
                 <Pressable
                   onPress={() => setEntryTypeAndReload("all")}
@@ -888,6 +899,7 @@ export default function PersonLedgerScreen() {
         people={people}
         categories={categories}
         isSaving={isBulkSaving}
+        selectionSnapshot={bulkEditSelectionSnapshot}
         onApply={(patch) => void onApplyBulkUpdate(patch)}
       />
 
@@ -908,102 +920,104 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    marginBottom: 8,
+    marginBottom: 10,
   },
   backBtn: {
     paddingVertical: 6,
-    paddingRight: 12,
+    paddingRight: 10,
   },
   backBtnPressed: { opacity: 0.7 },
   backBtnText: {
     color: "#0B0B0B",
-    fontFamily: "Poppins_600SemiBold",
-    fontSize: 14,
+    fontFamily: "Poppins_400Regular",
+    fontSize: 13,
   },
   topTitle: {
     flex: 1,
     textAlign: "center",
-    color: "#6B6B6B",
-    fontFamily: "Poppins_600SemiBold",
-    fontSize: 12,
-    letterSpacing: 1.2,
+    color: "#7B7B7B",
+    fontFamily: "Poppins_400Regular",
+    fontSize: 11,
+    letterSpacing: 0.8,
     textTransform: "uppercase",
   },
   topAddBtn: {
-    minWidth: 56,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 10,
+    minWidth: 52,
+    paddingVertical: 7,
+    paddingHorizontal: 10,
+    borderRadius: 8,
     borderWidth: 1,
-    borderColor: "#0B0B0B",
+    borderColor: "#D9D9D9",
     alignItems: "center",
+    backgroundColor: "#FFFFFF",
   },
-  topAddBtnPressed: { backgroundColor: "#F5F5F5" },
+  topAddBtnPressed: { backgroundColor: "#F6F6F6" },
   topAddBtnText: {
     color: "#0B0B0B",
-    fontFamily: "Poppins_600SemiBold",
-    fontSize: 13,
+    fontFamily: "Poppins_400Regular",
+    fontSize: 12,
   },
   topRightActions: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
+    gap: 6,
   },
   topPdfBtn: {
-    minWidth: 56,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 10,
+    minWidth: 52,
+    paddingVertical: 7,
+    paddingHorizontal: 10,
+    borderRadius: 8,
     borderWidth: 1,
-    borderColor: "#1E3A5F",
-    backgroundColor: "#1E3A5F",
+    borderColor: "#D9D9D9",
+    backgroundColor: "#FFFFFF",
     alignItems: "center",
   },
-  topPdfBtnPressed: { opacity: 0.88 },
+  topPdfBtnPressed: { backgroundColor: "#F6F6F6" },
   topPdfBtnText: {
-    color: "#FFFFFF",
-    fontFamily: "Poppins_700Bold",
-    fontSize: 13,
+    color: "#0B0B0B",
+    fontFamily: "Poppins_400Regular",
+    fontSize: 12,
   },
   topExcelBtn: {
-    minWidth: 56,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    borderRadius: 10,
+    minWidth: 52,
+    paddingVertical: 7,
+    paddingHorizontal: 10,
+    borderRadius: 8,
     borderWidth: 1,
-    borderColor: "#2E7D5A",
-    backgroundColor: "#2E7D5A",
+    borderColor: "#D9D9D9",
+    backgroundColor: "#FFFFFF",
     alignItems: "center",
   },
-  topExcelBtnPressed: { opacity: 0.88 },
+  topExcelBtnPressed: { backgroundColor: "#F6F6F6" },
   topExcelBtnText: {
-    color: "#FFFFFF",
-    fontFamily: "Poppins_700Bold",
-    fontSize: 13,
+    color: "#0B0B0B",
+    fontFamily: "Poppins_400Regular",
+    fontSize: 12,
   },
   personName: {
     color: "#0B0B0B",
-    fontFamily: "Poppins_800ExtraBold",
-    fontSize: 22,
-    marginBottom: 14,
+    fontFamily: "Poppins_400Regular",
+    fontSize: 19,
+    marginBottom: 10,
   },
   filterCard: {
     borderWidth: 1,
     borderColor: "#E7E7E7",
-    borderRadius: 16,
-    padding: 14,
-    gap: 10,
-    marginBottom: 14,
+    borderRadius: 12,
+    padding: 12,
+    gap: 8,
+    marginBottom: 10,
+    backgroundColor: "#FFFFFF",
   },
   filterLabel: {
-    color: "#6B6B6B",
+    color: "#4F4F4F",
     fontFamily: "Poppins_400Regular",
-    fontSize: 12,
+    fontSize: 11,
   },
   /** Year, month, Apply, Clear in one row; inputs and buttons bottom-aligned. */
   filterSingleRow: {
     flexDirection: "row",
-    gap: 8,
+    gap: 6,
     alignItems: "flex-end",
     width: "100%",
   },
@@ -1011,95 +1025,99 @@ const styles = StyleSheet.create({
   filterBtnCell: {
     flex: 1,
     minWidth: 0,
-    minHeight: 44,
+    minHeight: 40,
     justifyContent: "center",
   },
   filterFieldLbl: {
-    color: "#0B0B0B",
-    fontFamily: "Poppins_600SemiBold",
-    fontSize: 11,
+    color: "#666666",
+    fontFamily: "Poppins_400Regular",
+    fontSize: 10,
   },
   filterInput: {
     borderWidth: 1,
     borderColor: "#E7E7E7",
-    borderRadius: 12,
+    borderRadius: 10,
     paddingHorizontal: 8,
-    paddingVertical: 10,
-    fontFamily: "Poppins_600SemiBold",
-    fontSize: 13,
+    paddingVertical: 8,
+    fontFamily: "Poppins_400Regular",
+    fontSize: 12,
     color: "#0B0B0B",
+    backgroundColor: "#FFFFFF",
   },
   applyBtn: {
-    backgroundColor: "#0B0B0B",
-    borderRadius: 12,
-    paddingVertical: 10,
+    borderWidth: 1,
+    borderColor: "#D9D9D9",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 10,
+    paddingVertical: 8,
     paddingHorizontal: 8,
     alignItems: "center",
     justifyContent: "center",
   },
-  applyBtnPressed: { opacity: 0.88 },
+  applyBtnPressed: { backgroundColor: "#F6F6F6" },
   applyBtnText: {
-    color: "#FFFFFF",
-    fontFamily: "Poppins_700Bold",
-    fontSize: 13,
+    color: "#0B0B0B",
+    fontFamily: "Poppins_400Regular",
+    fontSize: 12,
   },
   clearBtn: {
     borderWidth: 1,
-    borderColor: "#0B0B0B",
-    borderRadius: 12,
-    paddingVertical: 10,
+    borderColor: "#D9D9D9",
+    borderRadius: 10,
+    paddingVertical: 8,
     paddingHorizontal: 8,
     alignItems: "center",
     justifyContent: "center",
+    backgroundColor: "#FFFFFF",
   },
-  clearBtnPressed: { backgroundColor: "#F5F5F5" },
+  clearBtnPressed: { backgroundColor: "#F6F6F6" },
   clearBtnText: {
     color: "#0B0B0B",
-    fontFamily: "Poppins_600SemiBold",
-    fontSize: 13,
+    fontFamily: "Poppins_400Regular",
+    fontSize: 12,
   },
-  categoryFilterBlock: { marginTop: 10, gap: 8 },
+  categoryFilterBlock: { marginTop: 8, gap: 6 },
   categoryFilterLabel: {
-    color: "#6B6B6B",
-    fontFamily: "Poppins_600SemiBold",
-    fontSize: 11,
+    color: "#666666",
+    fontFamily: "Poppins_400Regular",
+    fontSize: 10,
   },
   categoryChipScroll: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 8,
-    paddingVertical: 4,
+    gap: 6,
+    paddingVertical: 2,
     paddingRight: 8,
   },
   categoryChip: {
     borderWidth: 1,
     borderColor: "#E7E7E7",
     borderRadius: 999,
-    paddingVertical: 8,
-    paddingHorizontal: 12,
-    backgroundColor: "#FAFAFA",
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    backgroundColor: "#FFFFFF",
   },
   categoryChipActive: {
     borderColor: "#0B0B0B",
-    backgroundColor: "#0B0B0B",
+    backgroundColor: "#F5F5F5",
   },
   categoryChipPressed: { opacity: 0.9 },
   categoryChipText: {
     color: "#0B0B0B",
-    fontFamily: "Poppins_600SemiBold",
-    fontSize: 12,
+    fontFamily: "Poppins_400Regular",
+    fontSize: 11,
     maxWidth: 180,
   },
   categoryChipTextActive: {
-    color: "#FFFFFF",
+    color: "#0B0B0B",
   },
   center: { flex: 1, justifyContent: "center", alignItems: "center", gap: 10 },
   muted: { color: "#6B6B6B", fontFamily: "Poppins_400Regular" },
-  scrollContent: { paddingBottom: 24, gap: 14 },
+  scrollContent: { paddingBottom: 24, gap: 10 },
   creditDebitNetBox: {
     borderWidth: 1,
-    borderColor: "#0B0B0B",
-    borderRadius: 16,
+    borderColor: "#E7E7E7",
+    borderRadius: 12,
     overflow: "hidden",
     backgroundColor: "#FFFFFF",
   },
@@ -1107,16 +1125,15 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    paddingHorizontal: 14,
-    paddingTop: 12,
-    paddingBottom: 8,
+    paddingHorizontal: 12,
+    paddingTop: 10,
+    paddingBottom: 6,
     gap: 8,
   },
   creditDebitNetTitle: {
     color: "#0B0B0B",
-    fontFamily: "Poppins_700Bold",
-    fontSize: 13,
-    letterSpacing: 0.3,
+    fontFamily: "Poppins_400Regular",
+    fontSize: 12,
   },
   creditDebitNetClearBtn: {
     paddingVertical: 4,
@@ -1124,51 +1141,51 @@ const styles = StyleSheet.create({
   },
   creditDebitNetClearBtnPressed: { opacity: 0.75 },
   creditDebitNetClearText: {
-    color: "#2F4F8C",
-    fontFamily: "Poppins_600SemiBold",
-    fontSize: 12,
+    color: "#4F4F4F",
+    fontFamily: "Poppins_400Regular",
+    fontSize: 11,
   },
   creditDebitNetRowBtn: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingVertical: 12,
-    paddingHorizontal: 14,
-    backgroundColor: "#FAFAFA",
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    backgroundColor: "#FFFFFF",
   },
   creditDebitNetRowBtnCreditOn: {
-    backgroundColor: "#E9F5EE",
-    borderLeftWidth: 4,
+    backgroundColor: "#F7FBF8",
+    borderLeftWidth: 2,
     borderLeftColor: "#2E7D5A",
   },
   creditDebitNetRowBtnDebitOn: {
-    backgroundColor: "#FDF0F0",
-    borderLeftWidth: 4,
+    backgroundColor: "#FFF8F8",
+    borderLeftWidth: 2,
     borderLeftColor: "#B83C3C",
   },
   creditDebitNetRowBtnPressed: { opacity: 0.88 },
   creditDebitNetDivider: {
     height: StyleSheet.hairlineWidth,
     backgroundColor: "#E7E7E7",
-    marginLeft: 14,
+    marginLeft: 12,
   },
   creditDebitNetRowNet: {
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    paddingVertical: 12,
-    paddingHorizontal: 14,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
     backgroundColor: "#FFFFFF",
   },
   summaryLabel: {
     color: "#6B6B6B",
     fontFamily: "Poppins_400Regular",
-    fontSize: 13,
+    fontSize: 12,
   },
   summaryValue: {
     color: "#0B0B0B",
-    fontFamily: "Poppins_700Bold",
-    fontSize: 14,
+    fontFamily: "Poppins_400Regular",
+    fontSize: 13,
   },
   chartCard: {
     borderWidth: 1,
@@ -1179,7 +1196,7 @@ const styles = StyleSheet.create({
   },
   chartTitle: {
     color: "#0B0B0B",
-    fontFamily: "Poppins_700Bold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 14,
   },
   chartRow: {
@@ -1221,21 +1238,22 @@ const styles = StyleSheet.create({
   },
   tableTitle: {
     color: "#0B0B0B",
-    fontFamily: "Poppins_700Bold",
-    fontSize: 15,
+    fontFamily: "Poppins_400Regular",
+    fontSize: 14,
   },
   selectAllBtn: {
-    paddingVertical: 6,
-    paddingHorizontal: 10,
+    paddingVertical: 5,
+    paddingHorizontal: 9,
     borderRadius: 8,
     borderWidth: 1,
     borderColor: "#E7E7E7",
+    backgroundColor: "#FFFFFF",
   },
   selectAllBtnPressed: { backgroundColor: "#F5F5F5" },
   selectAllBtnText: {
     color: "#0B0B0B",
-    fontFamily: "Poppins_600SemiBold",
-    fontSize: 12,
+    fontFamily: "Poppins_400Regular",
+    fontSize: 11,
   },
   tableHead: {
     flexDirection: "row",
@@ -1245,7 +1263,7 @@ const styles = StyleSheet.create({
     gap: 8,
     alignItems: "center",
   },
-  th: { color: "#6B6B6B", fontFamily: "Poppins_600SemiBold", fontSize: 12 },
+  th: { color: "#6B6B6B", fontFamily: "Poppins_400Regular", fontSize: 12 },
   thSelect: { width: 36, textAlign: "center" },
   thDate: { width: 80 },
   thDesc: { flex: 1 },
@@ -1253,7 +1271,7 @@ const styles = StyleSheet.create({
   tableRow: {
     flexDirection: "row",
     alignItems: "flex-start",
-    paddingVertical: 12,
+    paddingVertical: 10,
     borderBottomWidth: 1,
     borderBottomColor: "#F0F0F0",
     gap: 8,
@@ -1276,8 +1294,8 @@ const styles = StyleSheet.create({
   },
   cellDateTop: {
     color: "#6B6B6B",
-    fontFamily: "Poppins_600SemiBold",
-    fontSize: 12,
+    fontFamily: "Poppins_400Regular",
+    fontSize: 11,
     lineHeight: 16,
     marginBottom: 4,
   },
@@ -1285,16 +1303,16 @@ const styles = StyleSheet.create({
   cellDescPressed: { opacity: 0.88 },
   cellRemarkBox: {
     marginTop: 2,
-    paddingVertical: 10,
-    paddingHorizontal: 12,
-    borderRadius: 10,
-    backgroundColor: "#EFEFEF",
-    borderLeftWidth: 4,
-    borderLeftColor: "#0B0B0B",
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    backgroundColor: "#F8F8F8",
+    borderLeftWidth: 2,
+    borderLeftColor: "#D0D0D0",
   },
   cellRemarkLabel: {
     color: "#6B6B6B",
-    fontFamily: "Poppins_600SemiBold",
+    fontFamily: "Poppins_400Regular",
     fontSize: 10,
     letterSpacing: 0.6,
     textTransform: "uppercase",
@@ -1302,15 +1320,15 @@ const styles = StyleSheet.create({
   },
   cellRemarkText: {
     color: "#2A2A2A",
-    fontFamily: "Poppins_600SemiBold",
-    fontSize: 13,
-    lineHeight: 19,
+    fontFamily: "Poppins_400Regular",
+    fontSize: 12,
+    lineHeight: 17,
   },
   cellDesc: {
     color: "#0B0B0B",
-    fontFamily: "Poppins_600SemiBold",
-    fontSize: 14,
-    lineHeight: 20,
+    fontFamily: "Poppins_400Regular",
+    fontSize: 13,
+    lineHeight: 18,
   },
   cellMetaRow: {
     flexDirection: "row",
@@ -1323,9 +1341,9 @@ const styles = StyleSheet.create({
     flex: 1,
     minWidth: 0,
     color: "#5C5C5C",
-    fontFamily: "Poppins_500Medium",
-    fontSize: 13,
-    lineHeight: 18,
+    fontFamily: "Poppins_400Regular",
+    fontSize: 12,
+    lineHeight: 16,
   },
   cellCategoryPill: {
     flexShrink: 0,
@@ -1339,15 +1357,15 @@ const styles = StyleSheet.create({
   },
   cellCategoryPillText: {
     color: "#1E3A5F",
-    fontFamily: "Poppins_600SemiBold",
-    fontSize: 12,
+    fontFamily: "Poppins_400Regular",
+    fontSize: 11,
     lineHeight: 16,
   },
   cellMoney: {
     width: 86,
     textAlign: "right",
-    fontFamily: "Poppins_700Bold",
-    fontSize: 14,
+    fontFamily: "Poppins_400Regular",
+    fontSize: 13,
     lineHeight: 18,
   },
   creditText: { color: "#2E7D5A" },
@@ -1361,8 +1379,8 @@ const styles = StyleSheet.create({
   },
   ledgerYearHeading: {
     color: "#0B0B0B",
-    fontFamily: "Poppins_800ExtraBold",
-    fontSize: 22,
+    fontFamily: "Poppins_400Regular",
+    fontSize: 18,
     marginTop: 4,
     marginBottom: 4,
   },
@@ -1371,9 +1389,9 @@ const styles = StyleSheet.create({
   },
   ledgerMonthHeading: {
     color: "#6B6B6B",
-    fontFamily: "Poppins_600SemiBold",
-    fontSize: 12,
-    paddingVertical: 6,
+    fontFamily: "Poppins_400Regular",
+    fontSize: 11,
+    paddingVertical: 5,
     paddingHorizontal: 2,
     borderBottomWidth: 1,
     borderBottomColor: "#E7E7E7",
